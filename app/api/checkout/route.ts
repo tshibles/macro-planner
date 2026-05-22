@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { getTierById } from "@/app/data/plans";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-04-22.dahlia",
 });
 
 export async function POST(req: NextRequest) {
-  const { budget, goal, diet, origin } = await req.json();
+  const { budget, goal, diet, tier, origin } = await req.json();
 
-  const planParams = new URLSearchParams({ budget, goal, diet }).toString();
+  const planTier = getTierById(tier);
+  if (planTier.priceInCents === 0) {
+    return NextResponse.json({ error: "Free tier does not require checkout" }, { status: 400 });
+  }
+
+  const planParams = new URLSearchParams({ budget, goal, diet, tier }).toString();
   const successUrl = `${origin}/plan?${planParams}&paid=true`;
   const cancelUrl = `${origin}/plan?${planParams}`;
 
@@ -19,10 +25,10 @@ export async function POST(req: NextRequest) {
         price_data: {
           currency: "usd",
           product_data: {
-            name: "7-Day Macro Meal Plan",
-            description: "Unlock your full personalized 7-day macro-balanced meal plan",
+            name: `${planTier.label} Macro Meal Plan`,
+            description: `${planTier.days}-day personalized macro-balanced meal plan with full recipes`,
           },
-          unit_amount: 1700,
+          unit_amount: planTier.priceInCents,
         },
         quantity: 1,
       },

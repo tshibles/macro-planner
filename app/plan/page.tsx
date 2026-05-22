@@ -1,9 +1,10 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { generatePlan, DayMeals } from "@/app/lib/generatePlan";
 import { Meal } from "@/app/data/meals";
+import { getTierById } from "@/app/data/plans";
 
 const GOAL_LABELS: Record<string, string> = {
   muscle_gain: "Build Muscle",
@@ -19,8 +20,6 @@ const DIET_LABELS: Record<string, string> = {
   vegan: "Vegan",
   gluten_free: "Gluten-Free",
   dairy_free: "Dairy-Free",
-  halal: "Halal",
-  kosher: "Kosher",
 };
 
 const MEAL_ICONS: Record<string, string> = {
@@ -37,6 +36,8 @@ const MEAL_LABELS: Record<string, string> = {
   snack: "Snack",
 };
 
+// ─── Macro Badge ────────────────────────────────────────────────────────────
+
 function MacroBadge({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md ${color}`}>
@@ -46,58 +47,247 @@ function MacroBadge({ label, value, color }: { label: string; value: string | nu
   );
 }
 
-function MealRow({ meal }: { meal: Meal }) {
+// ─── Recipe Modal ────────────────────────────────────────────────────────────
+
+interface UsdaMacros {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  source: string;
+}
+
+function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
+  const [usdaMacros, setUsdaMacros] = useState<UsdaMacros | null>(null);
+  const [usdaLoading, setUsdaLoading] = useState(true);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setUsdaLoading(true);
+    fetch(`/api/usda?query=${encodeURIComponent(meal.usdaQuery)}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) setUsdaMacros(data);
+      })
+      .catch(() => {})
+      .finally(() => setUsdaLoading(false));
+    return () => controller.abort();
+  }, [meal.usdaQuery]);
+
+  function handleOverlayClick(e: React.MouseEvent) {
+    if (e.target === overlayRef.current) onClose();
+  }
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const displayMacros = usdaMacros ?? {
+    calories: meal.calories,
+    protein: meal.protein,
+    carbs: meal.carbs,
+    fat: meal.fat,
+    source: null,
+  };
+
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-2 py-3 border-b border-white/5 last:border-0">
-      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-        <span className="text-lg w-7 flex-shrink-0">{MEAL_ICONS[meal.type]}</span>
-        <div className="min-w-0">
-          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-            {MEAL_LABELS[meal.type]}
-          </p>
-          <p className="text-sm text-white font-medium leading-snug">{meal.name}</p>
+    <div
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
+    >
+      <div className="w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85vh] bg-gray-900 border border-white/10 rounded-t-3xl sm:rounded-2xl overflow-y-auto shadow-2xl flex flex-col">
+        {/* Modal header */}
+        <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-white/8 px-6 py-4 flex items-start justify-between gap-4 z-10">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">{MEAL_ICONS[meal.type]}</span>
+              <span className="text-xs uppercase tracking-widest text-gray-500 font-medium">
+                {MEAL_LABELS[meal.type]}
+              </span>
+            </div>
+            <h2 className="text-xl font-bold text-white leading-tight">{meal.name}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 w-8 h-8 rounded-full bg-white/8 hover:bg-white/15 flex items-center justify-center transition-colors mt-1"
+            aria-label="Close"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-gray-400">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5 sm:justify-end ml-9 sm:ml-0">
-        <MacroBadge label="kcal" value={meal.calories} color="bg-white/8 text-gray-300" />
-        <MacroBadge label="P" value={`${meal.protein}g`} color="bg-blue-500/15 text-blue-300" />
-        <MacroBadge label="C" value={`${meal.carbs}g`} color="bg-amber-500/15 text-amber-300" />
-        <MacroBadge label="F" value={`${meal.fat}g`} color="bg-purple-500/15 text-purple-300" />
-        <span className="text-xs text-gray-500 ml-1">${meal.cost.toFixed(2)}</span>
+
+        <div className="flex-1 px-6 py-5 space-y-6">
+          {/* Macro breakdown */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                Macro Breakdown
+              </h3>
+              {usdaLoading ? (
+                <span className="text-xs text-gray-600 flex items-center gap-1.5">
+                  <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Fetching USDA data…
+                </span>
+              ) : usdaMacros ? (
+                <span className="text-xs text-emerald-500/70">
+                  USDA FoodData Central
+                </span>
+              ) : (
+                <span className="text-xs text-gray-600">Estimated</span>
+              )}
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { label: "Calories", value: displayMacros.calories, unit: "kcal", color: "bg-white/5 border-white/10", text: "text-white" },
+                { label: "Protein", value: displayMacros.protein, unit: "g", color: "bg-blue-500/10 border-blue-500/20", text: "text-blue-300" },
+                { label: "Carbs", value: displayMacros.carbs, unit: "g", color: "bg-amber-500/10 border-amber-500/20", text: "text-amber-300" },
+                { label: "Fat", value: displayMacros.fat, unit: "g", color: "bg-purple-500/10 border-purple-500/20", text: "text-purple-300" },
+              ].map(({ label, value, unit, color, text }) => (
+                <div key={label} className={`rounded-xl border px-3 py-3 text-center ${color}`}>
+                  <p className={`text-lg font-bold ${text}`}>{value}</p>
+                  <p className="text-xs text-gray-500">{unit}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+            {usdaMacros?.source && (
+              <p className="mt-2 text-xs text-gray-600 truncate">
+                Matched: &ldquo;{usdaMacros.source}&rdquo;
+              </p>
+            )}
+          </div>
+
+          {/* Ingredients */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">
+              Ingredients
+            </h3>
+            <ul className="space-y-1.5">
+              {meal.ingredients.map((ing, i) => (
+                <li key={i} className="flex items-baseline gap-3 text-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-500/60 flex-shrink-0 mt-1.5" />
+                  <span className="text-gray-300 flex-1">{ing.item}</span>
+                  <span className="text-gray-500 text-xs flex-shrink-0">{ing.amount}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Instructions */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">
+              Instructions
+            </h3>
+            <ol className="space-y-3">
+              {meal.instructions.map((step, i) => (
+                <li key={i} className="flex gap-3 text-sm">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-500/15 border border-brand-500/30 text-brand-400 text-xs font-bold flex items-center justify-center mt-0.5">
+                    {i + 1}
+                  </span>
+                  <p className="text-gray-300 leading-relaxed flex-1">{step}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Cost */}
+          <div className="pt-2 pb-1 border-t border-white/8 flex items-center justify-between text-sm">
+            <span className="text-gray-500">Estimated cost per serving</span>
+            <span className="text-gray-300 font-semibold">${meal.cost.toFixed(2)}</span>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function DayCard({ dayPlan }: { dayPlan: DayMeals }) {
+// ─── Meal Card ───────────────────────────────────────────────────────────────
+
+function MealCard({ meal, onClick }: { meal: Meal; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left flex items-center gap-3 py-3 px-0 border-b border-white/5 last:border-0 hover:bg-white/[0.02] -mx-1 px-1 rounded-lg transition-colors group"
+    >
+      <span className="text-base w-6 flex-shrink-0 text-center">{MEAL_ICONS[meal.type]}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wider leading-none mb-0.5">
+          {MEAL_LABELS[meal.type]}
+        </p>
+        <p className="text-sm text-white font-medium leading-snug group-hover:text-brand-400 transition-colors truncate">
+          {meal.name}
+        </p>
+        <div className="flex flex-wrap items-center gap-1 mt-1.5">
+          <MacroBadge label="kcal" value={meal.calories} color="bg-white/6 text-gray-400" />
+          <MacroBadge label="P" value={`${meal.protein}g`} color="bg-blue-500/10 text-blue-400" />
+          <MacroBadge label="C" value={`${meal.carbs}g`} color="bg-amber-500/10 text-amber-400" />
+          <MacroBadge label="F" value={`${meal.fat}g`} color="bg-purple-500/10 text-purple-400" />
+        </div>
+      </div>
+      <div className="flex-shrink-0 flex flex-col items-end gap-1">
+        <span className="text-xs text-gray-600">${meal.cost.toFixed(2)}</span>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-gray-600 group-hover:text-brand-500 transition-colors">
+          <path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l4.25-4.25a.75.75 0 0 0 0-1.06L7.28 0.22a.75.75 0 0 0-1.06 1.06L9.94 5l-3.72 3.72Z" />
+          <path d="M9.94 11l-3.72 3.72a.75.75 0 0 1-1.06-1.06l4.25-4.25h-8a.75.75 0 0 1 0-1.5h8L5.16 4.16a.75.75 0 1 1 1.06-1.06l4.25 4.25c.293.293.44.677.44 1.06L10.91 9.5l-.97.97Z" />
+        </svg>
+      </div>
+    </button>
+  );
+}
+
+// ─── Day Card ────────────────────────────────────────────────────────────────
+
+function DayCard({ dayPlan, onMealClick }: { dayPlan: DayMeals; onMealClick: (m: Meal) => void }) {
   return (
     <div className="bg-white/[0.04] border border-white/8 rounded-2xl overflow-hidden">
       <div className="px-5 py-3 bg-white/[0.03] border-b border-white/8 flex items-center justify-between">
-        <h3 className="font-semibold text-white">{dayPlan.day}</h3>
+        <div>
+          <p className="font-semibold text-white text-sm">{dayPlan.day}</p>
+          <p className="text-xs text-gray-600">{dayPlan.date}</p>
+        </div>
         <span className="text-xs text-gray-500">${dayPlan.dailyCost.toFixed(2)}</span>
       </div>
-      <div className="px-5">
-        <MealRow meal={dayPlan.breakfast} />
-        <MealRow meal={dayPlan.lunch} />
-        <MealRow meal={dayPlan.dinner} />
-        <MealRow meal={dayPlan.snack} />
+      <div className="px-4">
+        <MealCard meal={dayPlan.breakfast} onClick={() => onMealClick(dayPlan.breakfast)} />
+        <MealCard meal={dayPlan.lunch} onClick={() => onMealClick(dayPlan.lunch)} />
+        <MealCard meal={dayPlan.dinner} onClick={() => onMealClick(dayPlan.dinner)} />
+        <MealCard meal={dayPlan.snack} onClick={() => onMealClick(dayPlan.snack)} />
       </div>
-      {/* Daily totals */}
-      <div className="px-5 py-3 bg-white/[0.02] border-t border-white/8 flex flex-wrap gap-2 items-center">
-        <span className="text-xs text-gray-500 mr-1 font-medium uppercase tracking-wider">Daily total</span>
-        <MacroBadge label="kcal" value={dayPlan.dailyCalories.toLocaleString()} color="bg-white/8 text-gray-200" />
-        <MacroBadge label="P" value={`${dayPlan.dailyProtein}g`} color="bg-blue-500/15 text-blue-300" />
-        <MacroBadge label="C" value={`${dayPlan.dailyCarbs}g`} color="bg-amber-500/15 text-amber-300" />
-        <MacroBadge label="F" value={`${dayPlan.dailyFat}g`} color="bg-purple-500/15 text-purple-300" />
+      <div className="px-5 py-2.5 bg-white/[0.02] border-t border-white/8 flex flex-wrap gap-1.5 items-center">
+        <span className="text-xs text-gray-600 mr-0.5 font-medium">Daily:</span>
+        <MacroBadge label="kcal" value={dayPlan.dailyCalories.toLocaleString()} color="bg-white/6 text-gray-300" />
+        <MacroBadge label="P" value={`${dayPlan.dailyProtein}g`} color="bg-blue-500/10 text-blue-300" />
+        <MacroBadge label="C" value={`${dayPlan.dailyCarbs}g`} color="bg-amber-500/10 text-amber-300" />
+        <MacroBadge label="F" value={`${dayPlan.dailyFat}g`} color="bg-purple-500/10 text-purple-300" />
       </div>
     </div>
   );
 }
 
-function LockOverlay({ onUnlock, loading }: { onUnlock: () => void; loading: boolean }) {
+// ─── Upgrade Overlay ─────────────────────────────────────────────────────────
+
+function UpgradeOverlay({ onUpgrade, loading }: { onUpgrade: () => void; loading: boolean }) {
   return (
-    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl"
-      style={{ background: "linear-gradient(to bottom, transparent 0%, rgba(3,7,18,0.7) 20%, rgba(3,7,18,0.95) 50%)" }}>
+    <div
+      className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl"
+      style={{ background: "linear-gradient(to bottom, transparent 0%, rgba(3,7,18,0.75) 25%, rgba(3,7,18,0.97) 55%)" }}
+    >
       <div className="flex flex-col items-center gap-4 px-6 text-center">
         <div className="w-12 h-12 rounded-full bg-white/8 border border-white/12 flex items-center justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-gray-300">
@@ -105,13 +295,13 @@ function LockOverlay({ onUnlock, loading }: { onUnlock: () => void; loading: boo
           </svg>
         </div>
         <div>
-          <p className="text-white font-bold text-lg">Days 2–7 are locked</p>
+          <p className="text-white font-bold text-lg">Unlock your full plan</p>
           <p className="text-gray-400 text-sm mt-1 max-w-xs">
-            Unlock your complete 7-day plan — a one-time purchase, no subscription.
+            Upgrade to access your complete multi-week plan with all recipes.
           </p>
         </div>
         <button
-          onClick={onUnlock}
+          onClick={onUpgrade}
           disabled={loading}
           className="mt-1 bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold px-7 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/30 flex items-center gap-2 text-sm"
         >
@@ -121,16 +311,9 @@ function LockOverlay({ onUnlock, loading }: { onUnlock: () => void; loading: boo
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-              Redirecting to checkout…
+              Redirecting…
             </>
-          ) : (
-            <>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path d="M2.5 4A1.5 1.5 0 001 5.5v1A1.5 1.5 0 002.5 8h15A1.5 1.5 0 0019 6.5v-1A1.5 1.5 0 0017.5 4h-15zM1 10.5A1.5 1.5 0 012.5 9h15a1.5 1.5 0 010 3h-15A1.5 1.5 0 011 10.5zM2.5 14a1.5 1.5 0 000 3h15a1.5 1.5 0 000-3h-15z" />
-              </svg>
-              Unlock Full Plan — $17
-            </>
-          )}
+          ) : "View Upgrade Options"}
         </button>
         <p className="text-xs text-gray-600 flex items-center gap-1.5">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
@@ -143,6 +326,8 @@ function LockOverlay({ onUnlock, loading }: { onUnlock: () => void; loading: boo
   );
 }
 
+// ─── Main Plan Content ────────────────────────────────────────────────────────
+
 function PlanContent() {
   const router = useRouter();
   const params = useSearchParams();
@@ -150,171 +335,221 @@ function PlanContent() {
   const budget = parseFloat(params.get("budget") || "50");
   const goal = params.get("goal") || "";
   const diet = params.get("diet") || "";
+  const tierParam = params.get("tier") || "free";
   const paidParam = params.get("paid") === "true";
 
-  const [unlocked, setUnlocked] = useState(false);
+  const tier = getTierById(tierParam);
+  const isFree = tier.id === "free";
+
+  const [unlocked, setUnlocked] = useState(isFree);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [currentWeek, setCurrentWeek] = useState(0);
+  const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
 
   useEffect(() => {
-    // Check if already unlocked this session
-    const sessionKey = `paid_${budget}_${goal}_${diet}`;
+    if (isFree) return;
+    const sessionKey = `paid_${tierParam}_${budget}_${goal}_${diet}`;
     if (paidParam || sessionStorage.getItem(sessionKey) === "true") {
       sessionStorage.setItem(sessionKey, "true");
       setUnlocked(true);
-      // Clean ?paid=true from the URL without a reload
       if (paidParam) {
-        const clean = new URLSearchParams({ budget: String(budget), goal, diet });
+        const clean = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
         router.replace(`/plan?${clean.toString()}`);
       }
     }
-  }, [paidParam, budget, goal, diet, router]);
+  }, [paidParam, budget, goal, diet, tierParam, isFree, router]);
 
-  const plan = generatePlan(budget, goal, diet);
+  const plan = generatePlan(budget, goal, diet, tier.days);
+  const numWeeks = plan.weeks.length;
+  const weekDays = plan.weeks[currentWeek] ?? [];
 
   const budgetDiff = +(budget - plan.weeklyEstimatedCost).toFixed(2);
   const underBudget = budgetDiff >= 0;
 
-  async function handleUnlock() {
+  const handleMealClick = useCallback((meal: Meal) => {
+    setSelectedMeal(meal);
+  }, []);
+
+  async function handleUpgrade() {
     setCheckoutLoading(true);
-    try {
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          budget: String(budget),
-          goal,
-          diet,
-          origin: window.location.origin,
-        }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    } catch {
-      setCheckoutLoading(false);
-    }
+    router.push("/");
   }
 
-  const freeDay = plan.days[0];
-  const lockedDays = plan.days.slice(1);
+  const isWeekLocked = !unlocked && currentWeek > 0;
 
   return (
-    <main className="min-h-screen flex flex-col">
-      {/* Nav */}
-      <nav className="px-6 py-4 flex items-center justify-between border-b border-white/5 sticky top-0 bg-gray-950/90 backdrop-blur-md z-10">
-        <div className="flex items-center gap-4">
+    <>
+      {selectedMeal && (
+        <RecipeModal meal={selectedMeal} onClose={() => setSelectedMeal(null)} />
+      )}
+
+      <main className="min-h-screen flex flex-col">
+        {/* Nav */}
+        <nav className="px-6 py-4 flex items-center justify-between border-b border-white/5 sticky top-0 bg-gray-950/90 backdrop-blur-md z-10">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.push("/")}
+              className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-sm"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" />
+              </svg>
+              Back
+            </button>
+            <div className="h-4 w-px bg-white/10" />
+            <span className="text-brand-500">⚡</span>
+            <span className="font-bold text-sm tracking-tight">Macro Planner</span>
+          </div>
           <button
             onClick={() => router.push("/")}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-sm"
+            className="text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg px-3 py-1.5 transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" />
-            </svg>
-            Back
+            New plan
           </button>
-          <div className="h-4 w-px bg-white/10" />
-          <span className="text-brand-500">⚡</span>
-          <span className="font-bold text-sm tracking-tight">Macro Planner</span>
-        </div>
-        <button
-          onClick={() => router.push("/")}
-          className="text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg px-3 py-1.5 transition-colors"
-        >
-          New plan
-        </button>
-      </nav>
+        </nav>
 
-      <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-10">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2">
-            Your 7-Day{" "}
-            <span className="bg-gradient-to-r from-brand-400 to-emerald-300 bg-clip-text text-transparent">
-              Meal Plan
-            </span>
-          </h1>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-              ${budget}/week budget
-            </span>
-            {goal && (
-              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-                {GOAL_LABELS[goal]}
+        <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-10">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2">
+              Your {tier.days}-Day{" "}
+              <span className="bg-gradient-to-r from-brand-400 to-emerald-300 bg-clip-text text-transparent">
+                Meal Plan
               </span>
+            </h1>
+            <p className="text-sm text-gray-500 mb-3">
+              Tap any meal to see the full recipe and USDA macro data
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                ${budget}/wk budget
+              </span>
+              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                {tier.label} Plan
+              </span>
+              {goal && (
+                <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                  {GOAL_LABELS[goal]}
+                </span>
+              )}
+              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                {DIET_LABELS[diet] ?? "No restrictions"}
+              </span>
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Est. weekly cost</p>
+              <p className={`text-2xl font-bold ${underBudget ? "text-brand-400" : "text-red-400"}`}>
+                ${plan.weeklyEstimatedCost.toFixed(2)}
+              </p>
+              <p className="text-xs mt-1 text-gray-500">
+                {underBudget
+                  ? `$${budgetDiff.toFixed(2)} under budget`
+                  : `$${Math.abs(budgetDiff).toFixed(2)} over budget`}
+              </p>
+            </div>
+            <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Avg. daily calories</p>
+              <p className="text-2xl font-bold text-white">{plan.avgDailyCalories.toLocaleString()}</p>
+              <p className="text-xs mt-1 text-gray-500">kcal per day</p>
+            </div>
+            <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Avg. daily protein</p>
+              <p className="text-2xl font-bold text-blue-300">{plan.avgDailyProtein}g</p>
+              <p className="text-xs mt-1 text-gray-500">protein per day</p>
+            </div>
+          </div>
+
+          {/* Week navigation */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setCurrentWeek((w) => Math.max(0, w - 1))}
+                disabled={currentWeek === 0}
+                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <div className="text-center">
+                <p className="text-white font-semibold text-sm">Week {currentWeek + 1}</p>
+                <p className="text-xs text-gray-600">of {numWeeks}</p>
+              </div>
+              <button
+                onClick={() => setCurrentWeek((w) => Math.min(numWeeks - 1, w + 1))}
+                disabled={currentWeek === numWeeks - 1 || (!unlocked && currentWeek === 0)}
+                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Week pills — show up to 8 for navigation */}
+            {numWeeks > 1 && numWeeks <= 8 && (
+              <div className="hidden sm:flex items-center gap-1.5">
+                {Array.from({ length: numWeeks }, (_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (!unlocked && i > 0) return;
+                      setCurrentWeek(i);
+                    }}
+                    className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                      currentWeek === i
+                        ? "bg-brand-500 text-white"
+                        : !unlocked && i > 0
+                        ? "bg-white/4 text-gray-600 cursor-not-allowed"
+                        : "bg-white/6 text-gray-400 hover:bg-white/12 hover:text-white"
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
             )}
-            <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-              {DIET_LABELS[diet]}
-            </span>
           </div>
-        </div>
 
-        {/* Weekly summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-          <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Est. weekly cost</p>
-            <p className={`text-2xl font-bold ${underBudget ? "text-brand-400" : "text-red-400"}`}>
-              ${plan.weeklyEstimatedCost.toFixed(2)}
-            </p>
-            <p className="text-xs mt-1 text-gray-500">
-              {underBudget
-                ? `$${budgetDiff.toFixed(2)} under your $${budget} budget`
-                : `$${Math.abs(budgetDiff).toFixed(2)} over your $${budget} budget`}
-            </p>
-          </div>
-          <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Avg. daily calories</p>
-            <p className="text-2xl font-bold text-white">{plan.avgDailyCalories.toLocaleString()}</p>
-            <p className="text-xs mt-1 text-gray-500">kcal per day</p>
-          </div>
-          <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Avg. daily protein</p>
-            <p className="text-2xl font-bold text-blue-300">{plan.avgDailyProtein}g</p>
-            <p className="text-xs mt-1 text-gray-500">protein per day</p>
-          </div>
-        </div>
-
-        {/* Day cards */}
-        {/* Day 1 — always free */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          <DayCard dayPlan={freeDay} />
-        </div>
-
-        {/* Days 2–7 — locked or unlocked */}
-        {unlocked ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {lockedDays.map((dayPlan) => (
-              <DayCard key={dayPlan.day} dayPlan={dayPlan} />
-            ))}
-          </div>
-        ) : (
-          <div className="relative">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 blur-sm pointer-events-none select-none" aria-hidden>
-              {lockedDays.map((dayPlan) => (
-                <DayCard key={dayPlan.day} dayPlan={dayPlan} />
+          {/* Day cards (current week) */}
+          {isWeekLocked ? (
+            <div className="relative min-h-[500px]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 blur-sm pointer-events-none select-none" aria-hidden>
+                {(plan.weeks[1] ?? plan.weeks[0]).map((dayPlan) => (
+                  <DayCard key={dayPlan.dayIndex} dayPlan={dayPlan} onMealClick={() => {}} />
+                ))}
+              </div>
+              <UpgradeOverlay onUpgrade={handleUpgrade} loading={checkoutLoading} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {weekDays.map((dayPlan) => (
+                <DayCard key={dayPlan.dayIndex} dayPlan={dayPlan} onMealClick={handleMealClick} />
               ))}
             </div>
-            <LockOverlay onUnlock={handleUnlock} loading={checkoutLoading} />
+          )}
+
+          {/* Footer actions */}
+          <div className="mt-10 flex flex-col items-center gap-3">
+            <p className="text-sm text-gray-500">Not happy with your plan?</p>
+            <button
+              onClick={() => router.push("/")}
+              className="bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20"
+            >
+              Adjust my preferences
+            </button>
           </div>
-        )}
-
-        {/* Regenerate */}
-        <div className="mt-10 flex flex-col items-center gap-3">
-          <p className="text-sm text-gray-500">Not happy with the plan?</p>
-          <button
-            onClick={() => router.push("/")}
-            className="bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20"
-          >
-            Adjust my preferences
-          </button>
         </div>
-      </div>
 
-      {/* Footer */}
-      <footer className="px-6 py-4 text-center text-xs text-gray-600 border-t border-white/5">
-        © {new Date().getFullYear()} Macro Planner · Built for college students
-      </footer>
-    </main>
+        <footer className="px-6 py-4 text-center text-xs text-gray-600 border-t border-white/5">
+          © {new Date().getFullYear()} Macro Planner · Built for college students
+        </footer>
+      </main>
+    </>
   );
 }
 
