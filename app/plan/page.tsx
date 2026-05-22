@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { generatePlan, DayMeals } from "@/app/lib/generatePlan";
 import { Meal } from "@/app/data/meals";
 
@@ -94,6 +94,55 @@ function DayCard({ dayPlan }: { dayPlan: DayMeals }) {
   );
 }
 
+function LockOverlay({ onUnlock, loading }: { onUnlock: () => void; loading: boolean }) {
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl"
+      style={{ background: "linear-gradient(to bottom, transparent 0%, rgba(3,7,18,0.7) 20%, rgba(3,7,18,0.95) 50%)" }}>
+      <div className="flex flex-col items-center gap-4 px-6 text-center">
+        <div className="w-12 h-12 rounded-full bg-white/8 border border-white/12 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-gray-300">
+            <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-white font-bold text-lg">Days 2–7 are locked</p>
+          <p className="text-gray-400 text-sm mt-1 max-w-xs">
+            Unlock your complete 7-day plan — a one-time purchase, no subscription.
+          </p>
+        </div>
+        <button
+          onClick={onUnlock}
+          disabled={loading}
+          className="mt-1 bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold px-7 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/30 flex items-center gap-2 text-sm"
+        >
+          {loading ? (
+            <>
+              <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Redirecting to checkout…
+            </>
+          ) : (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path d="M2.5 4A1.5 1.5 0 001 5.5v1A1.5 1.5 0 002.5 8h15A1.5 1.5 0 0019 6.5v-1A1.5 1.5 0 0017.5 4h-15zM1 10.5A1.5 1.5 0 012.5 9h15a1.5 1.5 0 010 3h-15A1.5 1.5 0 011 10.5zM2.5 14a1.5 1.5 0 000 3h15a1.5 1.5 0 000-3h-15z" />
+              </svg>
+              Unlock Full Plan — $17
+            </>
+          )}
+        </button>
+        <p className="text-xs text-gray-600 flex items-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+            <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+          </svg>
+          Secure payment via Stripe
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function PlanContent() {
   const router = useRouter();
   const params = useSearchParams();
@@ -101,11 +150,54 @@ function PlanContent() {
   const budget = parseFloat(params.get("budget") || "50");
   const goal = params.get("goal") || "";
   const diet = params.get("diet") || "";
+  const paidParam = params.get("paid") === "true";
+
+  const [unlocked, setUnlocked] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  useEffect(() => {
+    // Check if already unlocked this session
+    const sessionKey = `paid_${budget}_${goal}_${diet}`;
+    if (paidParam || sessionStorage.getItem(sessionKey) === "true") {
+      sessionStorage.setItem(sessionKey, "true");
+      setUnlocked(true);
+      // Clean ?paid=true from the URL without a reload
+      if (paidParam) {
+        const clean = new URLSearchParams({ budget: String(budget), goal, diet });
+        router.replace(`/plan?${clean.toString()}`);
+      }
+    }
+  }, [paidParam, budget, goal, diet, router]);
 
   const plan = generatePlan(budget, goal, diet);
 
   const budgetDiff = +(budget - plan.weeklyEstimatedCost).toFixed(2);
   const underBudget = budgetDiff >= 0;
+
+  async function handleUnlock() {
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          budget: String(budget),
+          goal,
+          diet,
+          origin: window.location.origin,
+        }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setCheckoutLoading(false);
+    }
+  }
+
+  const freeDay = plan.days[0];
+  const lockedDays = plan.days.slice(1);
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -182,12 +274,29 @@ function PlanContent() {
           </div>
         </div>
 
-        {/* Day cards grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {plan.days.map((dayPlan) => (
-            <DayCard key={dayPlan.day} dayPlan={dayPlan} />
-          ))}
+        {/* Day cards */}
+        {/* Day 1 — always free */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <DayCard dayPlan={freeDay} />
         </div>
+
+        {/* Days 2–7 — locked or unlocked */}
+        {unlocked ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {lockedDays.map((dayPlan) => (
+              <DayCard key={dayPlan.day} dayPlan={dayPlan} />
+            ))}
+          </div>
+        ) : (
+          <div className="relative">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 blur-sm pointer-events-none select-none" aria-hidden>
+              {lockedDays.map((dayPlan) => (
+                <DayCard key={dayPlan.day} dayPlan={dayPlan} />
+              ))}
+            </div>
+            <LockOverlay onUnlock={handleUnlock} loading={checkoutLoading} />
+          </div>
+        )}
 
         {/* Regenerate */}
         <div className="mt-10 flex flex-col items-center gap-3">
