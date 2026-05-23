@@ -395,6 +395,18 @@ function PlanContent() {
     }
   }, [paidParam, budget, goal, diet, tierParam, isFree, router]);
 
+  const isWeekLocked = !unlocked && currentWeek > 0;
+
+  const handleMealClick = useCallback((meal: Meal) => {
+    setSelectedMeal(meal);
+  }, []);
+
+  useEffect(() => {
+    if (isWeekLocked) {
+      posthog.capture("paywall_hit", { tier: tierParam, budget, goal, diet });
+    }
+  }, [isWeekLocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (resolving) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -410,22 +422,10 @@ function PlanContent() {
   const budgetDiff = +(budget - plan.weeklyEstimatedCost).toFixed(2);
   const underBudget = budgetDiff >= 0;
 
-  const handleMealClick = useCallback((meal: Meal) => {
-    setSelectedMeal(meal);
-  }, []);
-
   async function handleUpgrade() {
     setCheckoutLoading(true);
     router.push("/");
   }
-
-  const isWeekLocked = !unlocked && currentWeek > 0;
-
-  useEffect(() => {
-    if (isWeekLocked) {
-      posthog.capture("paywall_hit", { tier: tierParam, budget, goal, diet });
-    }
-  }, [isWeekLocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
