@@ -2,11 +2,13 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { createClient } from "@/app/lib/supabase/client";
 
 function AuthContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const posthog = usePostHog();
   const urlError = searchParams.get("error");
   const [mode, setMode] = useState<"signin" | "signup" | "email-sent">("signin");
   const [email, setEmail] = useState("");
@@ -58,6 +60,7 @@ function AuthContent() {
         setError(error.message);
         setLoading(false);
       } else {
+        posthog.capture("signup", { method: "email" });
         setMode("email-sent");
         setLoading(false);
       }

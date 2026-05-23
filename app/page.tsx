@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { planTiers } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
 
@@ -24,6 +25,7 @@ const dietaryRestrictions = [
 
 export default function Home() {
   const router = useRouter();
+  const posthog = usePostHog();
   const [budget, setBudget] = useState("");
   const [goal, setGoal] = useState("");
   const [diet, setDiet] = useState("");
@@ -57,6 +59,8 @@ export default function Home() {
       tier,
     });
 
+    const planProps = { budget: budget || "50", goal, diet, tier };
+
     if (selectedTier.priceInCents === 0) {
       const res = await fetch("/api/free-trial/use", { method: "POST" });
       if (!res.ok) {
@@ -65,6 +69,7 @@ export default function Home() {
         setLoading(false);
         return;
       }
+      posthog.capture("plan_generated", planProps);
       router.push(`/plan?${params.toString()}`);
       return;
     }
@@ -83,6 +88,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.url) {
+        posthog.capture("plan_generated", planProps);
         window.location.href = data.url;
       }
     } catch {

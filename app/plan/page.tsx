@@ -2,6 +2,7 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { usePostHog } from "posthog-js/react";
 import { generatePlan, DayMeals } from "@/app/lib/generatePlan";
 import { Meal } from "@/app/data/meals";
 import { getTierById } from "@/app/data/plans";
@@ -331,6 +332,7 @@ function UpgradeOverlay({ onUpgrade, loading }: { onUpgrade: () => void; loading
 
 function PlanContent() {
   const router = useRouter();
+  const posthog = usePostHog();
   const params = useSearchParams();
 
   const budget = parseFloat(params.get("budget") || "50");
@@ -377,6 +379,12 @@ function PlanContent() {
   }
 
   const isWeekLocked = !unlocked && currentWeek > 0;
+
+  useEffect(() => {
+    if (isWeekLocked) {
+      posthog.capture("paywall_hit", { tier: tierParam, budget, goal, diet });
+    }
+  }, [isWeekLocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>

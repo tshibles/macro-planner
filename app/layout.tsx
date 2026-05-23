@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { PostHogProvider } from "@/app/components/PostHogProvider";
 
 export const metadata: Metadata = {
   title: "Macro Planner — Eat Well on a College Budget",
@@ -14,7 +15,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="antialiased bg-gray-950 text-white">{children}</body>
+      <body className="antialiased bg-gray-950 text-white">
+          <PostHogProvider>{children}</PostHogProvider>
+        </body>
     </html>
   );
 }
