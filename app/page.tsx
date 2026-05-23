@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { planTiers } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
+import { US_STATES } from "@/app/data/stateMultipliers";
 
 const fitnessGoals = [
   { value: "", label: "Select a goal..." },
@@ -23,6 +24,13 @@ const dietaryRestrictions = [
   { value: "dairy_free", label: "Dairy-Free" },
 ];
 
+const genderOptions = [
+  { value: "", label: "Select..." },
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other", label: "Other" },
+];
+
 export default function Home() {
   const router = useRouter();
   const posthog = usePostHog();
@@ -30,6 +38,11 @@ export default function Home() {
   const [goal, setGoal] = useState("");
   const [diet, setDiet] = useState("");
   const [tier, setTier] = useState("free");
+  const [weight, setWeight] = useState("");
+  const [heightFt, setHeightFt] = useState("");
+  const [heightIn, setHeightIn] = useState("");
+  const [gender, setGender] = useState("");
+  const [state, setState] = useState("");
   const [loading, setLoading] = useState(false);
   const [freeTrialUsed, setFreeTrialUsed] = useState(false);
   const [trialCheckDone, setTrialCheckDone] = useState(false);
@@ -47,6 +60,11 @@ export default function Home() {
             diet: plan.diet ?? "",
             tier: plan.tier ?? "free",
           });
+          if (plan.weight_lbs) p.set("weight", String(plan.weight_lbs));
+          if (plan.height_ft != null) p.set("heightFt", String(plan.height_ft));
+          if (plan.height_in != null) p.set("heightIn", String(plan.height_in));
+          if (plan.gender) p.set("gender", plan.gender);
+          if (plan.state) p.set("state", plan.state);
           router.replace(`/plan?${p.toString()}`);
           return;
         }
@@ -60,24 +78,42 @@ export default function Home() {
 
   const selectedTier = planTiers.find((t) => t.id === tier) ?? planTiers[0];
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-
-    const params = new URLSearchParams({
+  function buildParams() {
+    const p = new URLSearchParams({
       budget: budget || "50",
       goal,
       diet,
       tier,
     });
+    if (weight) p.set("weight", weight);
+    if (heightFt) p.set("heightFt", heightFt);
+    if (heightIn) p.set("heightIn", heightIn);
+    if (gender) p.set("gender", gender);
+    if (state) p.set("state", state);
+    return p;
+  }
 
-    const planProps = { budget: budget || "50", goal, diet, tier };
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+
+    const params = buildParams();
+    const planProps = { budget: budget || "50", goal, diet, tier, weight, gender, state };
 
     if (selectedTier.priceInCents === 0) {
       const res = await fetch("/api/free-trial/use", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ budget: budget || "50", goal, diet }),
+        body: JSON.stringify({
+          budget: budget || "50",
+          goal,
+          diet,
+          weight: weight ? parseFloat(weight) : null,
+          heightFt: heightFt ? parseInt(heightFt) : null,
+          heightIn: heightIn ? parseInt(heightIn) : null,
+          gender: gender || null,
+          state: state || null,
+        }),
       });
       if (!res.ok) {
         setFreeTrialUsed(true);
@@ -99,6 +135,11 @@ export default function Home() {
           goal,
           diet,
           tier,
+          weight: weight || "",
+          heightFt: heightFt || "",
+          heightIn: heightIn || "",
+          gender: gender || "",
+          state: state || "",
           origin: window.location.origin,
         }),
       });
@@ -111,6 +152,9 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  const selectClass =
+    "w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer";
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -184,7 +228,7 @@ export default function Home() {
                 id="goal"
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer"
+                className={selectClass}
               >
                 {fitnessGoals.map((opt) => (
                   <option key={opt.value} value={opt.value} className="bg-gray-900">
@@ -203,7 +247,7 @@ export default function Home() {
                 id="diet"
                 value={diet}
                 onChange={(e) => setDiet(e.target.value)}
-                className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer"
+                className={selectClass}
               >
                 {dietaryRestrictions.map((opt) => (
                   <option key={opt.value} value={opt.value} className="bg-gray-900">
@@ -211,6 +255,109 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Body Metrics (optional) */}
+            <div className="flex flex-col gap-3 border border-white/8 rounded-xl p-4 bg-white/[0.02]">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-300">Body metrics</p>
+                <span className="text-xs text-gray-600 bg-white/5 rounded-full px-2 py-0.5">
+                  Optional — enables calorie targeting
+                </span>
+              </div>
+
+              {/* Weight */}
+              <div className="flex flex-col gap-1">
+                <label htmlFor="weight" className="text-xs text-gray-500">
+                  Weight
+                </label>
+                <div className="relative">
+                  <input
+                    id="weight"
+                    type="number"
+                    min={80}
+                    max={400}
+                    step={1}
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    placeholder="160"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">lbs</span>
+                </div>
+              </div>
+
+              {/* Height */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500">Height</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min={4}
+                      max={7}
+                      step={1}
+                      value={heightFt}
+                      onChange={(e) => setHeightFt(e.target.value)}
+                      placeholder="5"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">ft</span>
+                  </div>
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={11}
+                      step={1}
+                      value={heightIn}
+                      onChange={(e) => setHeightIn(e.target.value)}
+                      placeholder="10"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">in</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gender */}
+              <div className="flex flex-col gap-1">
+                <label htmlFor="gender" className="text-xs text-gray-500">
+                  Biological sex
+                </label>
+                <select
+                  id="gender"
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
+                >
+                  {genderOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value} className="bg-gray-900">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* State */}
+              <div className="flex flex-col gap-1">
+                <label htmlFor="state" className="text-xs text-gray-500">
+                  State <span className="text-gray-600">(for grocery price estimates)</span>
+                </label>
+                <select
+                  id="state"
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
+                >
+                  <option value="" className="bg-gray-900">Select state…</option>
+                  {US_STATES.map((s) => (
+                    <option key={s.value} value={s.value} className="bg-gray-900">
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Plan Length */}

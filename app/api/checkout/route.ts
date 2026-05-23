@@ -7,16 +7,26 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 export async function POST(req: NextRequest) {
-  const { budget, goal, diet, tier, origin } = await req.json();
+  const {
+    budget, goal, diet, tier,
+    weight = "", heightFt = "", heightIn = "", gender = "", state = "",
+    origin,
+  } = await req.json();
 
   const planTier = getTierById(tier);
   if (planTier.priceInCents === 0) {
     return NextResponse.json({ error: "Free tier does not require checkout" }, { status: 400 });
   }
 
-  const planParams = new URLSearchParams({ budget, goal, diet, tier }).toString();
-  const successUrl = `${origin}/plan?${planParams}&paid=true`;
-  const cancelUrl = `${origin}/plan?${planParams}`;
+  const baseParams = new URLSearchParams({ budget, goal, diet, tier });
+  if (weight) baseParams.set("weight", weight);
+  if (heightFt) baseParams.set("heightFt", heightFt);
+  if (heightIn) baseParams.set("heightIn", heightIn);
+  if (gender) baseParams.set("gender", gender);
+  if (state) baseParams.set("state", state);
+
+  const successUrl = `${origin}/plan?${baseParams.toString()}&paid=true`;
+  const cancelUrl = `${origin}/plan?${baseParams.toString()}`;
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],

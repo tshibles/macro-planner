@@ -7,6 +7,8 @@ import { generatePlan, DayMeals } from "@/app/lib/generatePlan";
 import { Meal } from "@/app/data/meals";
 import { getTierById } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
+import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
+import { STATE_NAMES } from "@/app/data/stateMultipliers";
 
 const GOAL_LABELS: Record<string, string> = {
   muscle_gain: "Build Muscle",
@@ -147,9 +149,7 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
                   Fetching USDA data…
                 </span>
               ) : usdaMacros ? (
-                <span className="text-xs text-emerald-500/70">
-                  USDA FoodData Central
-                </span>
+                <span className="text-xs text-emerald-500/70">USDA FoodData Central</span>
               ) : (
                 <span className="text-xs text-gray-600">Estimated</span>
               )}
@@ -340,9 +340,26 @@ function PlanContent() {
   const diet = params.get("diet") || "";
   const tierParam = params.get("tier") || "free";
   const paidParam = params.get("paid") === "true";
+  const weightParam = params.get("weight") || "";
+  const heightFtParam = params.get("heightFt") || "";
+  const heightInParam = params.get("heightIn") || "";
+  const genderParam = params.get("gender") || "";
+  const stateParam = params.get("state") || "";
 
   const tier = getTierById(tierParam);
   const isFree = tier.id === "free";
+
+  // Calculate TDEE/calorie target if body metrics are present
+  const hasMetrics = weightParam && heightFtParam && genderParam;
+  const tdee = hasMetrics
+    ? calculateTDEE(
+        parseFloat(weightParam),
+        parseInt(heightFtParam),
+        parseInt(heightInParam || "0"),
+        genderParam
+      )
+    : null;
+  const calorieTarget = tdee ? getCalorieTarget(tdee, goal) : undefined;
 
   const [resolving, setResolving] = useState(isFree);
   const [unlocked, setUnlocked] = useState(isFree);
@@ -350,8 +367,6 @@ function PlanContent() {
   const [currentWeek, setCurrentWeek] = useState(0);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
 
-  // Load saved plan params and redirect if they differ from the current URL.
-  // This handles users who sign back in after using their free trial.
   useEffect(() => {
     if (!isFree) return;
     fetch("/api/meal-plans/saved")
@@ -367,12 +382,22 @@ function PlanContent() {
           diet: plan.diet ?? "",
           tier: plan.tier ?? "free",
         });
+        if (plan.weight_lbs) saved.set("weight", String(plan.weight_lbs));
+        if (plan.height_ft != null) saved.set("heightFt", String(plan.height_ft));
+        if (plan.height_in != null) saved.set("heightIn", String(plan.height_in));
+        if (plan.gender) saved.set("gender", plan.gender);
+        if (plan.state) saved.set("state", plan.state);
+
         const current = new URLSearchParams({
           budget: String(budget),
-          goal,
-          diet,
-          tier: tierParam,
+          goal, diet, tier: tierParam,
         });
+        if (weightParam) current.set("weight", weightParam);
+        if (heightFtParam) current.set("heightFt", heightFtParam);
+        if (heightInParam) current.set("heightIn", heightInParam);
+        if (genderParam) current.set("gender", genderParam);
+        if (stateParam) current.set("state", stateParam);
+
         if (saved.toString() !== current.toString()) {
           router.replace(`/plan?${saved.toString()}`);
         } else {
@@ -390,10 +415,15 @@ function PlanContent() {
       setUnlocked(true);
       if (paidParam) {
         const clean = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
+        if (weightParam) clean.set("weight", weightParam);
+        if (heightFtParam) clean.set("heightFt", heightFtParam);
+        if (heightInParam) clean.set("heightIn", heightInParam);
+        if (genderParam) clean.set("gender", genderParam);
+        if (stateParam) clean.set("state", stateParam);
         router.replace(`/plan?${clean.toString()}`);
       }
     }
-  }, [paidParam, budget, goal, diet, tierParam, isFree, router]);
+  }, [paidParam, budget, goal, diet, tierParam, isFree, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isWeekLocked = !unlocked && currentWeek > 0;
 
@@ -415,12 +445,22 @@ function PlanContent() {
     );
   }
 
-  const plan = generatePlan(budget, goal, diet, tier.days);
+  const plan = generatePlan(budget, goal, diet, tier.days, calorieTarget);
   const numWeeks = plan.weeks.length;
   const weekDays = plan.weeks[currentWeek] ?? [];
 
   const budgetDiff = +(budget - plan.weeklyEstimatedCost).toFixed(2);
   const underBudget = budgetDiff >= 0;
+
+  function buildGroceryParams() {
+    const p = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
+    if (weightParam) p.set("weight", weightParam);
+    if (heightFtParam) p.set("heightFt", heightFtParam);
+    if (heightInParam) p.set("heightIn", heightInParam);
+    if (genderParam) p.set("gender", genderParam);
+    if (stateParam) p.set("state", stateParam);
+    return p;
+  }
 
   async function handleUpgrade() {
     setCheckoutLoading(true);
@@ -488,11 +528,16 @@ function PlanContent() {
               <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
                 {DIET_LABELS[diet] ?? "No restrictions"}
               </span>
+              {stateParam && STATE_NAMES[stateParam] && (
+                <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                  {STATE_NAMES[stateParam]}
+                </span>
+              )}
             </div>
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <div className={`grid grid-cols-1 gap-4 mb-8 ${calorieTarget ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
             <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
               <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Est. weekly cost</p>
               <p className={`text-2xl font-bold ${underBudget ? "text-brand-400" : "text-red-400"}`}>
@@ -514,6 +559,15 @@ function PlanContent() {
               <p className="text-2xl font-bold text-blue-300">{plan.avgDailyProtein}g</p>
               <p className="text-xs mt-1 text-gray-500">protein per day</p>
             </div>
+            {calorieTarget && (
+              <div className="bg-brand-500/10 border border-brand-500/20 rounded-2xl px-5 py-4">
+                <p className="text-xs text-brand-400/80 uppercase tracking-wider font-medium mb-1">Calorie target</p>
+                <p className="text-2xl font-bold text-brand-300">{calorieTarget.toLocaleString()}</p>
+                <p className="text-xs mt-1 text-brand-400/60">
+                  TDEE {tdee?.toLocaleString()} · {goal ? GOAL_LABELS[goal] : "Maintenance"}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Week navigation */}
@@ -543,7 +597,6 @@ function PlanContent() {
               </button>
             </div>
 
-            {/* Week pills — show up to 8 for navigation */}
             {numWeeks > 1 && numWeeks <= 8 && (
               <div className="hidden sm:flex items-center gap-1.5">
                 {Array.from({ length: numWeeks }, (_, i) => (
@@ -568,7 +621,7 @@ function PlanContent() {
             )}
           </div>
 
-          {/* Day cards (current week) */}
+          {/* Day cards */}
           {isWeekLocked ? (
             <div className="relative min-h-[500px]">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 blur-sm pointer-events-none select-none" aria-hidden>
@@ -588,6 +641,15 @@ function PlanContent() {
 
           {/* Footer actions */}
           <div className="mt-10 flex flex-col items-center gap-3">
+            <button
+              onClick={() => router.push(`/grocery?${buildGroceryParams().toString()}`)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-6 py-3 rounded-xl transition-colors shadow-lg shadow-emerald-600/20 flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path d="M1 1.75A.75.75 0 0 1 1.75 1h1.628a1.75 1.75 0 0 1 1.734 1.51L5.18 3a65.25 65.25 0 0 1 13.36 1.412.75.75 0 0 1 .58.875 48.645 48.645 0 0 1-1.618 6.2.75.75 0 0 1-.712.513H6a2.503 2.503 0 0 0-2.292 1.5H17.25a.75.75 0 0 1 0 1.5H2.76a.75.75 0 0 1-.748-.807 4.002 4.002 0 0 1 2.716-3.486L3.626 4.51A.25.25 0 0 0 3.379 4H1.75A.75.75 0 0 1 1 3.25V1.75ZM6 15.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM15.5 17a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Z" />
+              </svg>
+              View Grocery List
+            </button>
             <p className="text-sm text-gray-500">Not happy with your plan?</p>
             <button
               onClick={() => router.push("/")}

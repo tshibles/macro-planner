@@ -23,6 +23,7 @@ export interface MealPlan {
   weeklyEstimatedCost: number;
   avgDailyCalories: number;
   avgDailyProtein: number;
+  calorieTarget?: number;
 }
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -82,7 +83,13 @@ function formatDate(dayOffset: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function generatePlan(budget: number, goal: string, diet: string, totalDays: number): MealPlan {
+export function generatePlan(
+  budget: number,
+  goal: string,
+  diet: string,
+  totalDays: number,
+  calorieTarget?: number
+): MealPlan {
   const goalIndex = ["muscle_gain", "fat_loss", "maintenance", "endurance", "general_health"].indexOf(goal) + 1;
   const dietIndex = ["", "vegetarian", "vegan", "gluten_free", "dairy_free", "halal", "kosher"].indexOf(diet) + 1;
   const seed = Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100;
@@ -92,7 +99,6 @@ export function generatePlan(budget: number, goal: string, diet: string, totalDa
     const eligible = meals.filter((m) => m.type === type && isAllowed(m, diet));
     if (eligible.length === 0) return meals.filter((m) => m.type === type).slice(0, 5);
     const sorted = [...eligible].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
-    // Bias toward top-scored meals but maintain variety
     const topHalf = sorted.slice(0, Math.ceil(sorted.length / 2));
     const bottomHalf = sorted.slice(Math.ceil(sorted.length / 2));
     return [...shuffle(topHalf, rng), ...shuffle(bottomHalf, rng)];
@@ -103,16 +109,30 @@ export function generatePlan(budget: number, goal: string, diet: string, totalDa
   const dinners = buildPool("dinner");
   const snacks = buildPool("snack");
 
-  // Rotation: cycle through 20-meal pool — guarantees no same-meal within a week
-  // (20 meals ÷ 7 days/week = no repeat for ~3 weeks naturally)
-  const pick = (pool: Meal[], dayIndex: number): Meal =>
-    pool[dayIndex % pool.length];
+  const pick = (pool: Meal[], dayIndex: number): Meal => pool[dayIndex % pool.length];
 
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
     const breakfast = pick(breakfasts, i);
     const lunch = pick(lunches, i);
     const dinner = pick(dinners, i);
-    const snack = pick(snacks, i);
+
+    let snack: Meal;
+    if (calorieTarget) {
+      // Use a sliding 5-candidate window in the snack pool to hit the daily calorie target.
+      // The window advances each day so variety is maintained.
+      const remaining = calorieTarget - (breakfast.calories + lunch.calories + dinner.calories);
+      const windowStart = i % snacks.length;
+      const candidates = Array.from(
+        { length: Math.min(5, snacks.length) },
+        (_, j) => snacks[(windowStart + j) % snacks.length]
+      );
+      snack = candidates.reduce((best, curr) =>
+        Math.abs(curr.calories - remaining) < Math.abs(best.calories - remaining) ? curr : best
+      );
+    } else {
+      snack = pick(snacks, i);
+    }
+
     const weekIndex = Math.floor(i / 7);
     const dayInWeek = i % 7;
     return {
@@ -132,7 +152,6 @@ export function generatePlan(budget: number, goal: string, diet: string, totalDa
     };
   });
 
-  // Group days into weeks
   const numWeeks = Math.ceil(totalDays / 7);
   const weeks: DayMeals[][] = Array.from({ length: numWeeks }, (_, w) =>
     days.slice(w * 7, w * 7 + 7)
@@ -143,5 +162,5 @@ export function generatePlan(budget: number, goal: string, diet: string, totalDa
   const avgDailyCalories = Math.round(days.reduce((s, d) => s + d.dailyCalories, 0) / days.length);
   const avgDailyProtein = Math.round(days.reduce((s, d) => s + d.dailyProtein, 0) / days.length);
 
-  return { days, weeks, totalDays, weeklyEstimatedCost, avgDailyCalories, avgDailyProtein };
+  return { days, weeks, totalDays, weeklyEstimatedCost, avgDailyCalories, avgDailyProtein, calorieTarget };
 }

@@ -25,7 +25,16 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { budget = 50, goal = "", diet = "" } = body;
+  const {
+    budget = 50,
+    goal = "",
+    diet = "",
+    weight = null,
+    heightFt = null,
+    heightIn = null,
+    gender = null,
+    state = null,
+  } = body;
 
   const { error } = await supabase
     .from("profiles")
@@ -45,6 +54,11 @@ export async function POST(req: Request) {
       goal,
       diet,
       tier: "free",
+      weight_lbs: weight != null ? parseFloat(String(weight)) : null,
+      height_ft: heightFt != null ? parseInt(String(heightFt)) : null,
+      height_in: heightIn != null ? parseInt(String(heightIn)) : null,
+      gender: gender || null,
+      state: state || null,
     },
     { onConflict: "user_id" }
   );
