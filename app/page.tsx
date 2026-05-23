@@ -33,6 +33,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [freeTrialUsed, setFreeTrialUsed] = useState(false);
   const [trialCheckDone, setTrialCheckDone] = useState(false);
+  const [savedPlanUrl, setSavedPlanUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/free-trial/status")
@@ -40,7 +41,23 @@ export default function Home() {
       .then((data) => {
         const used = data.used ?? false;
         setFreeTrialUsed(used);
-        if (used) setTier("starter");
+        if (used) {
+          setTier("starter");
+          return fetch("/api/meal-plans/saved")
+            .then((r) => r.json())
+            .then(({ plan }) => {
+              if (plan) {
+                const p = new URLSearchParams({
+                  budget: String(plan.budget),
+                  goal: plan.goal ?? "",
+                  diet: plan.diet ?? "",
+                  tier: plan.tier ?? "free",
+                });
+                setSavedPlanUrl(`/plan?${p.toString()}`);
+              }
+            })
+            .catch(() => {});
+        }
       })
       .catch(() => {})
       .finally(() => setTrialCheckDone(true));
@@ -62,7 +79,11 @@ export default function Home() {
     const planProps = { budget: budget || "50", goal, diet, tier };
 
     if (selectedTier.priceInCents === 0) {
-      const res = await fetch("/api/free-trial/use", { method: "POST" });
+      const res = await fetch("/api/free-trial/use", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budget: budget || "50", goal, diet }),
+      });
       if (!res.ok) {
         setFreeTrialUsed(true);
         setTier("starter");
@@ -263,9 +284,19 @@ export default function Home() {
             </div>
 
             {freeTrialUsed && (
-              <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                Your free trial has been used. Choose a plan above to continue.
-              </p>
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                  Your free trial has been used. Choose a plan above to continue.
+                </p>
+                {savedPlanUrl && (
+                  <a
+                    href={savedPlanUrl}
+                    className="text-xs text-brand-400 hover:text-brand-300 bg-brand-500/10 border border-brand-500/20 rounded-lg px-3 py-2 text-center transition-colors"
+                  >
+                    View your saved 7-day plan
+                  </a>
+                )}
+              </div>
             )}
 
             {/* CTA */}

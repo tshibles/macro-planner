@@ -1,7 +1,7 @@
 import { createClient } from "@/app/lib/supabase/server";
 import { NextResponse } from "next/server";
 
-export async function POST() {
+export async function POST(req: Request) {
   const supabase = createClient();
   const {
     data: { user },
@@ -24,6 +24,9 @@ export async function POST() {
     );
   }
 
+  const body = await req.json().catch(() => ({}));
+  const { budget = 50, goal = "", diet = "" } = body;
+
   const { error } = await supabase
     .from("profiles")
     .upsert({ id: user.id, free_trial_used: true }, { onConflict: "id" });
@@ -34,6 +37,17 @@ export async function POST() {
       { status: 500 }
     );
   }
+
+  await supabase.from("meal_plans").upsert(
+    {
+      user_id: user.id,
+      budget: parseFloat(String(budget)),
+      goal,
+      diet,
+      tier: "free",
+    },
+    { onConflict: "user_id" }
+  );
 
   return NextResponse.json({ success: true });
 }

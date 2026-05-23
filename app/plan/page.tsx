@@ -344,10 +344,43 @@ function PlanContent() {
   const tier = getTierById(tierParam);
   const isFree = tier.id === "free";
 
+  const [resolving, setResolving] = useState(isFree);
   const [unlocked, setUnlocked] = useState(isFree);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState(0);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
+
+  // Load saved plan params and redirect if they differ from the current URL.
+  // This handles users who sign back in after using their free trial.
+  useEffect(() => {
+    if (!isFree) return;
+    fetch("/api/meal-plans/saved")
+      .then((r) => r.json())
+      .then(({ plan }) => {
+        if (!plan) {
+          setResolving(false);
+          return;
+        }
+        const saved = new URLSearchParams({
+          budget: String(plan.budget),
+          goal: plan.goal ?? "",
+          diet: plan.diet ?? "",
+          tier: plan.tier ?? "free",
+        });
+        const current = new URLSearchParams({
+          budget: String(budget),
+          goal,
+          diet,
+          tier: tierParam,
+        });
+        if (saved.toString() !== current.toString()) {
+          router.replace(`/plan?${saved.toString()}`);
+        } else {
+          setResolving(false);
+        }
+      })
+      .catch(() => setResolving(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (isFree) return;
@@ -361,6 +394,14 @@ function PlanContent() {
       }
     }
   }, [paidParam, budget, goal, diet, tierParam, isFree, router]);
+
+  if (resolving) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-400 text-sm">Loading your plan…</div>
+      </div>
+    );
+  }
 
   const plan = generatePlan(budget, goal, diet, tier.days);
   const numWeeks = plan.weeks.length;
