@@ -33,34 +33,29 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [freeTrialUsed, setFreeTrialUsed] = useState(false);
   const [trialCheckDone, setTrialCheckDone] = useState(false);
-  const [savedPlanUrl, setSavedPlanUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/free-trial/status")
-      .then((r) => r.json())
-      .then((data) => {
-        const used = data.used ?? false;
-        setFreeTrialUsed(used);
-        if (used) {
-          setTier("starter");
-          return fetch("/api/meal-plans/saved")
-            .then((r) => r.json())
-            .then(({ plan }) => {
-              if (plan) {
-                const p = new URLSearchParams({
-                  budget: String(plan.budget),
-                  goal: plan.goal ?? "",
-                  diet: plan.diet ?? "",
-                  tier: plan.tier ?? "free",
-                });
-                setSavedPlanUrl(`/plan?${p.toString()}`);
-              }
-            })
-            .catch(() => {});
+    Promise.all([
+      fetch("/api/meal-plans/saved").then((r) => r.json()),
+      fetch("/api/free-trial/status").then((r) => r.json()).catch(() => ({ used: false })),
+    ])
+      .then(([{ plan }, statusData]) => {
+        if (plan) {
+          const p = new URLSearchParams({
+            budget: String(plan.budget),
+            goal: plan.goal ?? "",
+            diet: plan.diet ?? "",
+            tier: plan.tier ?? "free",
+          });
+          router.replace(`/plan?${p.toString()}`);
+          return;
         }
+        const used = statusData.used ?? false;
+        setFreeTrialUsed(used);
+        if (used) setTier("starter");
+        setTrialCheckDone(true);
       })
-      .catch(() => {})
-      .finally(() => setTrialCheckDone(true));
+      .catch(() => setTrialCheckDone(true));
   }, []);
 
   const selectedTier = planTiers.find((t) => t.id === tier) ?? planTiers[0];
@@ -284,19 +279,9 @@ export default function Home() {
             </div>
 
             {freeTrialUsed && (
-              <div className="flex flex-col gap-2">
-                <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                  Your free trial has been used. Choose a plan above to continue.
-                </p>
-                {savedPlanUrl && (
-                  <a
-                    href={savedPlanUrl}
-                    className="text-xs text-brand-400 hover:text-brand-300 bg-brand-500/10 border border-brand-500/20 rounded-lg px-3 py-2 text-center transition-colors"
-                  >
-                    View your saved 7-day plan
-                  </a>
-                )}
-              </div>
+              <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                Your free trial has been used. Choose a plan above to continue.
+              </p>
             )}
 
             {/* CTA */}
