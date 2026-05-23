@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { generatePlan, DayMeals } from "@/app/lib/generatePlan";
 import { Meal } from "@/app/data/meals";
 import { getTierById } from "@/app/data/plans";
+import { UserButton } from "@/app/components/UserButton";
 
 const GOAL_LABELS: Record<string, string> = {
   muscle_gain: "Build Muscle",
@@ -400,12 +401,15 @@ function PlanContent() {
             <span className="text-brand-500">⚡</span>
             <span className="font-bold text-sm tracking-tight">Macro Planner</span>
           </div>
-          <button
-            onClick={() => router.push("/")}
-            className="text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg px-3 py-1.5 transition-colors"
-          >
-            New plan
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push("/")}
+              className="text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              New plan
+            </button>
+            <UserButton />
+          </div>
         </nav>
 
         <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-10">

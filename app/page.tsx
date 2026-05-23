@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { planTiers } from "@/app/data/plans";
+import { UserButton } from "@/app/components/UserButton";
 
 const fitnessGoals = [
   { value: "", label: "Select a goal..." },
@@ -28,6 +29,20 @@ export default function Home() {
   const [diet, setDiet] = useState("");
   const [tier, setTier] = useState("free");
   const [loading, setLoading] = useState(false);
+  const [freeTrialUsed, setFreeTrialUsed] = useState(false);
+  const [trialCheckDone, setTrialCheckDone] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/free-trial/status")
+      .then((r) => r.json())
+      .then((data) => {
+        const used = data.used ?? false;
+        setFreeTrialUsed(used);
+        if (used) setTier("starter");
+      })
+      .catch(() => {})
+      .finally(() => setTrialCheckDone(true));
+  }, []);
 
   const selectedTier = planTiers.find((t) => t.id === tier) ?? planTiers[0];
 
@@ -43,6 +58,13 @@ export default function Home() {
     });
 
     if (selectedTier.priceInCents === 0) {
+      const res = await fetch("/api/free-trial/use", { method: "POST" });
+      if (!res.ok) {
+        setFreeTrialUsed(true);
+        setTier("starter");
+        setLoading(false);
+        return;
+      }
       router.push(`/plan?${params.toString()}`);
       return;
     }
@@ -76,9 +98,12 @@ export default function Home() {
           <span className="text-brand-500 text-xl">⚡</span>
           <span className="font-bold text-lg tracking-tight">Macro Planner</span>
         </div>
-        <span className="text-xs text-gray-500 bg-white/5 px-3 py-1 rounded-full">
-          College-friendly nutrition
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500 bg-white/5 px-3 py-1 rounded-full hidden sm:block">
+            College-friendly nutrition
+          </span>
+          <UserButton />
+        </div>
       </nav>
 
       {/* Hero */}
@@ -169,54 +194,78 @@ export default function Home() {
             {/* Plan Length */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium text-gray-300">Plan length</label>
-              <div className="grid grid-cols-1 gap-2">
-                {planTiers.map((t) => (
-                  <label
-                    key={t.id}
-                    className={`relative flex items-center justify-between gap-3 rounded-xl px-4 py-3 border cursor-pointer transition-all ${
-                      tier === t.id
-                        ? "border-brand-500/60 bg-brand-500/10"
-                        : "border-white/10 bg-white/[0.02] hover:border-white/20"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-colors ${
-                          tier === t.id ? "border-brand-500 bg-brand-500" : "border-gray-600"
+              {!trialCheckDone ? (
+                <div className="h-[200px] rounded-xl bg-white/[0.02] border border-white/10 animate-pulse" />
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {planTiers.map((t) => {
+                    const isFreeTierDisabled = t.id === "free" && freeTrialUsed;
+                    return (
+                      <label
+                        key={t.id}
+                        className={`relative flex items-center justify-between gap-3 rounded-xl px-4 py-3 border transition-all ${
+                          isFreeTierDisabled
+                            ? "border-white/5 bg-white/[0.01] opacity-50 cursor-not-allowed"
+                            : tier === t.id
+                            ? "border-brand-500/60 bg-brand-500/10 cursor-pointer"
+                            : "border-white/10 bg-white/[0.02] hover:border-white/20 cursor-pointer"
                         }`}
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-white">{t.label}</span>
-                          {t.badge && (
-                            <span className="text-xs bg-brand-500/20 text-brand-400 border border-brand-500/30 rounded-full px-1.5 py-0.5 leading-none">
-                              {t.badge}
-                            </span>
-                          )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-colors ${
+                              isFreeTierDisabled
+                                ? "border-gray-700"
+                                : tier === t.id
+                                ? "border-brand-500 bg-brand-500"
+                                : "border-gray-600"
+                            }`}
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-white">{t.label}</span>
+                              {isFreeTierDisabled ? (
+                                <span className="text-xs bg-gray-700/50 text-gray-500 border border-gray-600/30 rounded-full px-1.5 py-0.5 leading-none">
+                                  Used
+                                </span>
+                              ) : t.badge ? (
+                                <span className="text-xs bg-brand-500/20 text-brand-400 border border-brand-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                                  {t.badge}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-xs text-gray-500">{t.description}</span>
+                          </div>
                         </div>
-                        <span className="text-xs text-gray-500">{t.description}</span>
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-200 flex-shrink-0">
-                      {t.price === 0 ? "Free" : `$${t.price}`}
-                    </span>
-                    <input
-                      type="radio"
-                      name="tier"
-                      value={t.id}
-                      checked={tier === t.id}
-                      onChange={() => setTier(t.id)}
-                      className="sr-only"
-                    />
-                  </label>
-                ))}
-              </div>
+                        <span className="text-sm font-bold text-gray-200 flex-shrink-0">
+                          {t.price === 0 ? "Free" : `$${t.price}`}
+                        </span>
+                        <input
+                          type="radio"
+                          name="tier"
+                          value={t.id}
+                          checked={tier === t.id}
+                          disabled={isFreeTierDisabled}
+                          onChange={() => !isFreeTierDisabled && setTier(t.id)}
+                          className="sr-only"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
+            {freeTrialUsed && (
+              <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                Your free trial has been used. Choose a plan above to continue.
+              </p>
+            )}
 
             {/* CTA */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !trialCheckDone}
               className="mt-2 w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors duration-150 shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
             >
               {loading ? (
