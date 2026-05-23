@@ -7,16 +7,17 @@ import { getTierById } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
 import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
 import { STATE_MULTIPLIERS, STATE_NAMES } from "@/app/data/stateMultipliers";
-import { lookupIngredientPrice } from "@/app/data/ingredientPrices";
 import { Ingredient } from "@/app/data/meals";
+import { isPantryStaple, computePurchasable } from "@/app/data/purchasableUnits";
 
 interface GroceryItem {
   name: string;
   amounts: string[];
   count: number;
-  unitPrice: number;  // state-adjusted price per use
-  basePrice: number;
+  purchaseLabel: string;  // e.g. "2 lbs", "1 dozen"
+  unitPrice: number;      // state-adjusted price per purchasable unit
   total: number;
+  isPantry: boolean;
 }
 
 function computeGroceryList(
@@ -26,7 +27,7 @@ function computeGroceryList(
   tierDays: number,
   calorieTarget: number | undefined,
   stateCode: string
-): GroceryItem[] {
+): { regularItems: GroceryItem[]; pantryItems: GroceryItem[] } {
   const plan = generatePlan(budget, goal, diet, tierDays, calorieTarget);
   const week1 = plan.weeks[0] ?? [];
   const multiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
@@ -54,16 +55,36 @@ function computeGroceryList(
     }
   }
 
-  const items: GroceryItem[] = Array.from(map.entries()).map(([key, { amounts, count }]) => {
-    const basePrice = lookupIngredientPrice(key);
-    const unitPrice = +(basePrice * multiplier).toFixed(2);
-    const total = +(unitPrice * count).toFixed(2);
-    return { name: key, amounts, count, basePrice, unitPrice, total };
-  });
+  const regularItems: GroceryItem[] = [];
+  const pantryItems: GroceryItem[] = [];
 
-  // Sort by total cost descending
-  items.sort((a, b) => b.total - a.total);
-  return items;
+  for (const [key, { amounts, count }] of Array.from(map.entries())) {
+    const pantry = isPantryStaple(key);
+    const { label, pricePerUnit, total } = computePurchasable(key, amounts, count, multiplier);
+
+    const item: GroceryItem = {
+      name: key,
+      amounts,
+      count,
+      purchaseLabel: label,
+      unitPrice: pricePerUnit,
+      total,
+      isPantry: pantry,
+    };
+
+    if (pantry) {
+      pantryItems.push(item);
+    } else {
+      regularItems.push(item);
+    }
+  }
+
+  // Sort regular items by total cost descending
+  regularItems.sort((a, b) => b.total - a.total);
+  // Sort pantry items alphabetically
+  pantryItems.sort((a, b) => a.name.localeCompare(b.name));
+
+  return { regularItems, pantryItems };
 }
 
 function normalizeKey(raw: string): string {
@@ -71,9 +92,6 @@ function normalizeKey(raw: string): string {
     .replace(/\([^)]*\)/g, "")
     .replace(/,.*$/, "")
     .trim()
-    .toLowerCase()
-    // Title-case for display
-    .replace(/\b\w/g, (c) => c.toUpperCase())
     .toLowerCase();
 }
 
@@ -113,14 +131,14 @@ function GroceryContent() {
   const stateMultiplier = STATE_MULTIPLIERS[stateParam] ?? 1.0;
   const stateName = STATE_NAMES[stateParam] ?? null;
 
-  const groceryItems = useMemo(
+  const { regularItems, pantryItems } = useMemo(
     () => computeGroceryList(budget, goal, diet, tier.days, calorieTarget, stateParam),
     [budget, goal, diet, tier.days, calorieTarget, stateParam]
   );
 
   const totalCost = useMemo(
-    () => groceryItems.reduce((s, i) => s + i.total, 0),
-    [groceryItems]
+    () => regularItems.reduce((s, i) => s + i.total, 0),
+    [regularItems]
   );
 
   const [saved, setSaved] = useState(false);
@@ -128,6 +146,7 @@ function GroceryContent() {
 
   // Save grocery list to Supabase on mount
   useEffect(() => {
+    const allItems = [...regularItems, ...pantryItems];
     setSaving(true);
     fetch("/api/grocery/save", {
       method: "POST",
@@ -142,7 +161,7 @@ function GroceryContent() {
         heightIn: heightInParam || null,
         gender: genderParam || null,
         state: stateParam || null,
-        groceryList: groceryItems.map((i) => ({
+        groceryList: allItems.map((i) => ({
           name: i.name,
           count: i.count,
           unitPrice: i.unitPrice,
@@ -223,7 +242,7 @@ function GroceryContent() {
               {tier.days}-day plan · Week 1
             </span>
             <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-              {groceryItems.length} unique ingredients
+              {regularItems.length} items to buy
             </span>
             {stateName && (
               <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
@@ -256,37 +275,29 @@ function GroceryContent() {
           </div>
         </div>
 
-        {/* Ingredient table */}
-        <div className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden">
+        {/* Main grocery table */}
+        <div className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden mb-8">
           {/* Table header */}
           <div className="grid grid-cols-12 gap-2 px-5 py-3 bg-white/[0.03] border-b border-white/8 text-xs font-semibold text-gray-500 uppercase tracking-wider">
             <span className="col-span-5">Ingredient</span>
-            <span className="col-span-2 text-center">Qty</span>
-            <span className="col-span-2 text-right">Unit price</span>
+            <span className="col-span-4 text-center">Amount to buy</span>
             <span className="col-span-3 text-right">Total</span>
           </div>
 
           {/* Rows */}
           <div className="divide-y divide-white/5">
-            {groceryItems.map((item) => (
+            {regularItems.map((item) => (
               <div
                 key={item.name}
                 className="grid grid-cols-12 gap-2 px-5 py-3 items-center hover:bg-white/[0.02] transition-colors"
               >
                 <div className="col-span-5 min-w-0">
                   <p className="text-sm text-white font-medium truncate">{displayName(item.name)}</p>
-                  <p className="text-xs text-gray-600 truncate">
-                    {Array.from(new Set(item.amounts)).slice(0, 2).join(", ")}
-                    {Array.from(new Set(item.amounts)).length > 2 ? "…" : ""}
-                  </p>
                 </div>
-                <div className="col-span-2 text-center">
-                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/8 text-gray-300 text-xs font-semibold">
-                    {item.count}×
+                <div className="col-span-4 text-center">
+                  <span className="inline-flex items-center justify-center rounded-lg bg-white/8 text-gray-200 text-xs font-semibold px-2.5 py-1">
+                    {item.purchaseLabel}
                   </span>
-                </div>
-                <div className="col-span-2 text-right">
-                  <span className="text-sm text-gray-400">${item.unitPrice.toFixed(2)}</span>
                 </div>
                 <div className="col-span-3 text-right">
                   <span className="text-sm font-semibold text-white">${item.total.toFixed(2)}</span>
@@ -298,18 +309,39 @@ function GroceryContent() {
           {/* Footer total */}
           <div className="grid grid-cols-12 gap-2 px-5 py-4 bg-white/[0.04] border-t border-white/10 items-center">
             <span className="col-span-5 text-sm font-bold text-white">Total</span>
-            <span className="col-span-2 text-center text-xs text-gray-600">
-              {groceryItems.reduce((s, i) => s + i.count, 0)} uses
+            <span className="col-span-4 text-center text-xs text-gray-600">
+              {regularItems.length} items
             </span>
-            <span className="col-span-2" />
             <span className="col-span-3 text-right text-lg font-extrabold text-emerald-300">
               ${totalCost.toFixed(2)}
             </span>
           </div>
         </div>
 
+        {/* Pantry Staples section */}
+        {pantryItems.length > 0 && (
+          <div className="bg-white/[0.02] border border-white/6 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/6">
+              <h2 className="text-sm font-bold text-gray-300 mb-1">Pantry Staples</h2>
+              <p className="text-xs text-gray-500">
+                This list assumes you have basic pantry staples. If not, add these to your cart too.
+              </p>
+            </div>
+            <div className="px-5 py-4 flex flex-wrap gap-2">
+              {pantryItems.map((item) => (
+                <span
+                  key={item.name}
+                  className="inline-flex items-center text-xs bg-white/5 border border-white/8 text-gray-400 rounded-full px-3 py-1"
+                >
+                  {displayName(item.name)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="mt-4 text-xs text-gray-600 text-center">
-          Prices are per-serving estimates. Actual retail prices vary by store and brand.
+          Prices are per-package retail estimates. Actual prices vary by store and brand.
           {stateName && ` Regional multiplier applied for ${stateName}.`}
         </p>
 
