@@ -39,5 +39,6 @@ export async function GET(request: Request) {
     return redirectTo;
   }
 
-  return NextResponse.redirect(`${origin}${next}`);
+  // No code in the URL — redirect URL was not whitelisted in Supabase or OAuth failed
+  return NextResponse.redirect(`${origin}/auth?error=missing_oauth_code`);
 }
