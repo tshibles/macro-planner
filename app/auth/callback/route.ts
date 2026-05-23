@@ -9,7 +9,6 @@ export async function GET(request: Request) {
 
   if (code) {
     const cookieStore = cookies();
-    const redirectTo = NextResponse.redirect(`${origin}${next}`);
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,7 +20,7 @@ export async function GET(request: Request) {
           },
           setAll(cookiesToSet) {
             cookiesToSet.forEach(({ name, value, options }) =>
-              redirectTo.cookies.set(name, value, options)
+              cookieStore.set(name, value, options)
             );
           },
         },
@@ -36,7 +35,9 @@ export async function GET(request: Request) {
       );
     }
 
-    return redirectTo;
+    // Session cookies are written to cookieStore above; Next.js merges them
+    // into this redirect response automatically.
+    return NextResponse.redirect(`${origin}${next}`);
   }
 
   // No code in the URL — redirect URL was not whitelisted in Supabase or OAuth failed
