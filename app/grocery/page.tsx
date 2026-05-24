@@ -28,7 +28,7 @@ function computeGroceryList(
   calorieTarget: number | undefined,
   stateCode: string
 ): { regularItems: GroceryItem[]; pantryItems: GroceryItem[] } {
-  const plan = generatePlan(budget, goal, diet, tierDays, calorieTarget);
+  const plan = generatePlan(budget, goal, diet, tierDays, stateCode, calorieTarget);
   const week1 = plan.weeks[0] ?? [];
   const multiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
 

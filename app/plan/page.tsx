@@ -445,7 +445,7 @@ function PlanContent() {
     );
   }
 
-  const plan = generatePlan(budget, goal, diet, tier.days, calorieTarget);
+  const plan = generatePlan(budget, goal, diet, tier.days, stateParam, calorieTarget);
   const numWeeks = plan.weeks.length;
   const weekDays = plan.weeks[currentWeek] ?? [];
 
