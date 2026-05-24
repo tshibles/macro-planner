@@ -77,8 +77,8 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "egg whites":               { unit: "carton",             price: 3.49, base: "count", capacity: 1 },
   "plain greek yogurt":       { unit: "container (32 oz)",  price: 4.99, base: "tbsp",  capacity: 64 },
   "greek yogurt":             { unit: "container (32 oz)",  price: 4.99, base: "tbsp",  capacity: 64 },
-  "milk":                     { unit: "half-gallon",        price: 2.49, base: "tbsp",  capacity: 128 },
-  "2% milk":                  { unit: "half-gallon",        price: 2.49, base: "tbsp",  capacity: 128 },
+  "milk":                     { unit: "gallon",             price: 3.99, base: "tbsp",  capacity: 256 },
+  "2% milk":                  { unit: "gallon",             price: 3.99, base: "tbsp",  capacity: 256 },
   "unsweetened almond milk":  { unit: "half-gallon",        price: 3.49, base: "tbsp",  capacity: 128 },
   "almond milk":              { unit: "half-gallon",        price: 3.49, base: "tbsp",  capacity: 128 },
   "low-fat cottage cheese":   { unit: "container (16 oz)",  price: 2.99, base: "tbsp",  capacity: 32 },
@@ -379,7 +379,18 @@ export function computePurchasable(
   // If none of the amounts could be parsed in the base unit, fall back to recipe count
   if (parsed === 0) totalBase = recipeCount;
 
-  const qty = Math.max(1, Math.ceil(totalBase / def.capacity));
+  let qty = Math.max(1, Math.ceil(totalBase / def.capacity));
+
+  // Protein powder: one 2-lb tub has ~28-30 servings — always enough for a week.
+  if (key.includes("protein powder")) qty = 1;
+
+  // Eggs: one dozen = 12 eggs; only go to 2 dozen if the plan truly needs more than 12.
+  // Math.ceil already handles this correctly; guard against parsing fallback inflating count.
+  if ((key === "large eggs" || key === "large egg") && parsed === 0) {
+    // recipeCount (number of uses) is not egg count — cap at 1 dozen unless we parsed real amounts
+    qty = 1;
+  }
+
   const pricePerUnit = +(def.price * stateMultiplier).toFixed(2);
   const total = +(pricePerUnit * qty).toFixed(2);
 

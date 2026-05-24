@@ -151,6 +151,27 @@ function buildPool(
   return [...shuffle(topHalf, rng), ...shuffle(bottomHalf, rng)];
 }
 
+// ── Round-Robin Variety Tracker ──────────────────────────────────────────────
+
+// Tracks which meal IDs have already been used per slot type so we can enforce
+// round-robin rotation: a meal won't be repeated until every eligible meal in
+// that slot's pool has been used at least once.
+interface UsedTracker {
+  breakfast: Set<string>;
+  lunch: Set<string>;
+  dinner: Set<string>;
+  snack: Set<string>;
+}
+
+function freshUsedTracker(): UsedTracker {
+  return {
+    breakfast: new Set(),
+    lunch: new Set(),
+    dinner: new Set(),
+    snack: new Set(),
+  };
+}
+
 // ── Day Selection ────────────────────────────────────────────────────────────
 
 // Greedily pick the best meal for each slot independently.
@@ -166,20 +187,28 @@ function selectDayMeals(
   budget: number,
   multiplier: number,
   calorieTarget: number | undefined,
-  goal: string
+  goal: string,
+  usedTracker: UsedTracker
 ): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
   // localCart tracks what we've committed within this day so overlap scoring
   // for later slots reflects intra-day purchases.
   const localCart = cloneCart(cart);
   let allocatedCals = 0;
 
-  function pickBest(pool: Meal[], remainingSlots: number): Meal {
+  function pickBest(pool: Meal[], usedSet: Set<string>, remainingSlots: number): Meal {
+    // Round-robin: exclude already-used meals; reset when all have been used.
+    let available = pool.filter((m) => !usedSet.has(m.id));
+    if (available.length === 0) {
+      usedSet.clear();
+      available = pool;
+    }
+
     const targetCals =
       calorieTarget !== undefined
         ? (calorieTarget - allocatedCals) / remainingSlots
         : undefined;
 
-    const scored = pool.map((m) => {
+    const scored = available.map((m) => {
       const calFit =
         targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
       const overlap = overlapCount(m, localCart) * 5;
@@ -191,26 +220,30 @@ function selectDayMeals(
     for (const { m } of scored) {
       const testCart = cloneCart(localCart);
       addMealToCart(testCart, m);
-      if (computeCartTotal(testCart, multiplier) <= budget) return m;
+      if (computeCartTotal(testCart, multiplier) <= budget) {
+        usedSet.add(m.id);
+        return m;
+      }
     }
 
     // Fallback: best score regardless of budget (avoids an empty plan).
+    usedSet.add(scored[0].m.id);
     return scored[0].m;
   }
 
-  const breakfast = pickBest(bPool, 4);
+  const breakfast = pickBest(bPool, usedTracker.breakfast, 4);
   addMealToCart(localCart, breakfast);
   allocatedCals += breakfast.calories;
 
-  const lunch = pickBest(lPool, 3);
+  const lunch = pickBest(lPool, usedTracker.lunch, 3);
   addMealToCart(localCart, lunch);
   allocatedCals += lunch.calories;
 
-  const dinner = pickBest(dPool, 2);
+  const dinner = pickBest(dPool, usedTracker.dinner, 2);
   addMealToCart(localCart, dinner);
   allocatedCals += dinner.calories;
 
-  const snack = pickBest(sPool, 1);
+  const snack = pickBest(sPool, usedTracker.snack, 1);
 
   return { breakfast, lunch, dinner, snack };
 }
@@ -251,6 +284,7 @@ export function generatePlan(
   const cart: Cart = new Map();
   const week1Days: DayMeals[] = [];
   const week1Length = Math.min(totalDays, 7);
+  const usedTracker = freshUsedTracker();
 
   for (let i = 0; i < week1Length; i++) {
     const { breakfast, lunch, dinner, snack } = selectDayMeals(
@@ -263,7 +297,8 @@ export function generatePlan(
       budget,
       multiplier,
       calorieTarget,
-      goal
+      goal,
+      usedTracker
     );
 
     addMealToCart(cart, breakfast);
