@@ -151,38 +151,13 @@ function buildPool(
   return [...shuffle(topHalf, rng), ...shuffle(bottomHalf, rng)];
 }
 
-// K candidates from the pool starting at dayIndex, wrapping around.
-function getCandidates(pool: Meal[], dayIndex: number, k: number): Meal[] {
-  const n = Math.min(k, pool.length);
-  const start = dayIndex % pool.length;
-  return Array.from({ length: n }, (_, i) => pool[(start + i) % pool.length]);
-}
-
 // ── Day Selection ────────────────────────────────────────────────────────────
 
-// Score a single meal combination: goal nutrition + calorie proximity + overlap reward.
-function scoreCombo(
-  b: Meal,
-  l: Meal,
-  d: Meal,
-  s: Meal,
-  cart: Cart,
-  goal: string,
-  calorieTarget: number | undefined
-): number {
-  const nutrition = [b, l, d, s].reduce((sum, m) => sum + scoreMeal(m, goal), 0);
-  const dailyCals = b.calories + l.calories + d.calories + s.calories;
-  const calPenalty = calorieTarget ? -Math.abs(dailyCals - calorieTarget) * 0.5 : 0;
-  // Reward shared ingredients (already purchased, so marginal cost approaches zero).
-  const overlap = [b, l, d, s].reduce((sum, m) => sum + overlapCount(m, cart) * 5, 0);
-  return nutrition + calPenalty + overlap;
-}
-
-// Find the best (breakfast, lunch, dinner, snack) combo for day `dayIndex` that keeps
-// the cumulative cart total at or under `budget`. Tries increasingly large candidate
-// windows, then falls back to the cheapest valid combo.
+// Greedily pick the best meal for each slot independently.
+// Scores each candidate by goal nutrition + calorie proximity + ingredient overlap.
+// No combination search — O(n) per slot instead of O(n^4).
 function selectDayMeals(
-  dayIndex: number,
+  _dayIndex: number,
   bPool: Meal[],
   lPool: Meal[],
   dPool: Meal[],
@@ -193,73 +168,51 @@ function selectDayMeals(
   calorieTarget: number | undefined,
   goal: string
 ): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
-  type Combo = { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal };
+  // localCart tracks what we've committed within this day so overlap scoring
+  // for later slots reflects intra-day purchases.
+  const localCart = cloneCart(cart);
+  let allocatedCals = 0;
 
-  function search(k: number): Combo | null {
-    const bs = getCandidates(bPool, dayIndex, k);
-    const ls = getCandidates(lPool, dayIndex, k);
-    const ds = getCandidates(dPool, dayIndex, k);
-    const ss = getCandidates(sPool, dayIndex, k);
+  function pickBest(pool: Meal[], remainingSlots: number): Meal {
+    const targetCals =
+      calorieTarget !== undefined
+        ? (calorieTarget - allocatedCals) / remainingSlots
+        : undefined;
 
-    let best: Combo | null = null;
-    let bestScore = -Infinity;
+    const scored = pool.map((m) => {
+      const calFit =
+        targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
+      const overlap = overlapCount(m, localCart) * 5;
+      return { m, score: scoreMeal(m, goal) + calFit + overlap };
+    });
+    scored.sort((a, b) => b.score - a.score);
 
-    for (const b of bs) {
-      for (const l of ls) {
-        for (const d of ds) {
-          for (const s of ss) {
-            const testCart = cloneCart(cart);
-            addMealToCart(testCart, b);
-            addMealToCart(testCart, l);
-            addMealToCart(testCart, d);
-            addMealToCart(testCart, s);
-            if (computeCartTotal(testCart, multiplier) > budget) continue;
-
-            const score = scoreCombo(b, l, d, s, cart, goal, calorieTarget);
-            if (score > bestScore) {
-              bestScore = score;
-              best = { breakfast: b, lunch: l, dinner: d, snack: s };
-            }
-          }
-        }
-      }
+    // Take highest-scored meal that keeps cumulative cart within budget.
+    for (const { m } of scored) {
+      const testCart = cloneCart(localCart);
+      addMealToCart(testCart, m);
+      if (computeCartTotal(testCart, multiplier) <= budget) return m;
     }
-    return best;
+
+    // Fallback: best score regardless of budget (avoids an empty plan).
+    return scored[0].m;
   }
 
-  // Try with a small window first (fast path), then expand.
-  const result = search(3) ?? search(bPool.length);
-  if (result) return result;
+  const breakfast = pickBest(bPool, 4);
+  addMealToCart(localCart, breakfast);
+  allocatedCals += breakfast.calories;
 
-  // Absolute fallback: no combo fits the budget — pick the globally cheapest one.
-  // This keeps the plan valid even if the user's budget is extremely tight.
-  let cheapest: Combo = {
-    breakfast: bPool[dayIndex % bPool.length],
-    lunch: lPool[dayIndex % lPool.length],
-    dinner: dPool[dayIndex % dPool.length],
-    snack: sPool[dayIndex % sPool.length],
-  };
-  let minCost = Infinity;
+  const lunch = pickBest(lPool, 3);
+  addMealToCart(localCart, lunch);
+  allocatedCals += lunch.calories;
 
-  for (const b of bPool) {
-    for (const l of lPool) {
-      for (const d of dPool) {
-        for (const s of sPool) {
-          const testCart = cloneCart(cart);
-          addMealToCart(testCart, b);
-          addMealToCart(testCart, l);
-          addMealToCart(testCart, d);
-          addMealToCart(testCart, s);
-          const cost = computeCartTotal(testCart, multiplier);
-          if (cost < minCost) {
-            minCost = cost;
-            cheapest = { breakfast: b, lunch: l, dinner: d, snack: s };
-          }
-        }
-      }
-    }
-  }
-  return cheapest;
+  const dinner = pickBest(dPool, 2);
+  addMealToCart(localCart, dinner);
+  allocatedCals += dinner.calories;
+
+  const snack = pickBest(sPool, 1);
+
+  return { breakfast, lunch, dinner, snack };
 }
 
 // ── Main Export ──────────────────────────────────────────────────────────────
