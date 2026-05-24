@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePostHog } from "posthog-js/react";
-import { generatePlan, DayMeals } from "@/app/lib/generatePlan";
+import type { DayMeals, MealPlan } from "@/app/lib/generatePlan";
 import { Meal } from "@/app/data/meals";
 import { getTierById } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
@@ -366,6 +366,7 @@ function PlanContent() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState(0);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
+  const [plan, setPlan] = useState<MealPlan | null>(null);
 
   useEffect(() => {
     if (!isFree) return;
@@ -425,6 +426,27 @@ function PlanContent() {
     }
   }, [paidParam, budget, goal, diet, tierParam, isFree, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (resolving) return;
+    let cancelled = false;
+    fetch("/api/generate-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        budget,
+        goal,
+        diet,
+        totalDays: tier.days,
+        stateCode: stateParam,
+        calorieTarget,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setPlan(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [resolving]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const isWeekLocked = !unlocked && currentWeek > 0;
 
   const handleMealClick = useCallback((meal: Meal) => {
@@ -437,15 +459,13 @@ function PlanContent() {
     }
   }, [isWeekLocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (resolving) {
+  if (resolving || !plan) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-400 text-sm">Loading your plan…</div>
+        <div className="text-gray-400 text-sm">Building your plan…</div>
       </div>
     );
   }
-
-  const plan = generatePlan(budget, goal, diet, tier.days, stateParam, calorieTarget);
   const numWeeks = plan.weeks.length;
   const weekDays = plan.weeks[currentWeek] ?? [];
 

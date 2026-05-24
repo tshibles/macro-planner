@@ -2,7 +2,7 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { generatePlan } from "@/app/lib/generatePlan";
+import type { DayMeals } from "@/app/lib/generatePlan";
 import { getTierById } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
 import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
@@ -21,15 +21,9 @@ interface GroceryItem {
 }
 
 function computeGroceryList(
-  budget: number,
-  goal: string,
-  diet: string,
-  tierDays: number,
-  calorieTarget: number | undefined,
+  week1: DayMeals[],
   stateCode: string
 ): { regularItems: GroceryItem[]; pantryItems: GroceryItem[] } {
-  const plan = generatePlan(budget, goal, diet, tierDays, stateCode, calorieTarget);
-  const week1 = plan.weeks[0] ?? [];
   const multiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
 
   // Collect every ingredient from every meal in week 1
@@ -131,10 +125,36 @@ function GroceryContent() {
   const stateMultiplier = STATE_MULTIPLIERS[stateParam] ?? 1.0;
   const stateName = STATE_NAMES[stateParam] ?? null;
 
-  const { regularItems, pantryItems } = useMemo(
-    () => computeGroceryList(budget, goal, diet, tier.days, calorieTarget, stateParam),
-    [budget, goal, diet, tier.days, calorieTarget, stateParam]
-  );
+  const [regularItems, setRegularItems] = useState<GroceryItem[]>([]);
+  const [pantryItems, setPantryItems] = useState<GroceryItem[]>([]);
+  const [planLoading, setPlanLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/generate-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        budget,
+        goal,
+        diet,
+        totalDays: tier.days,
+        stateCode: stateParam,
+        calorieTarget,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const week1: DayMeals[] = data.weeks?.[0] ?? [];
+        const { regularItems: reg, pantryItems: pantry } = computeGroceryList(week1, stateParam);
+        setRegularItems(reg);
+        setPantryItems(pantry);
+        setPlanLoading(false);
+      })
+      .catch(() => setPlanLoading(false));
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalCost = useMemo(
     () => regularItems.reduce((s, i) => s + i.total, 0),
@@ -144,8 +164,9 @@ function GroceryContent() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Save grocery list to Supabase on mount
+  // Save grocery list to Supabase once plan is loaded
   useEffect(() => {
+    if (planLoading || regularItems.length === 0) return;
     const allItems = [...regularItems, ...pantryItems];
     setSaving(true);
     fetch("/api/grocery/save", {
@@ -172,7 +193,15 @@ function GroceryContent() {
       .then(() => setSaved(true))
       .catch(() => {})
       .finally(() => setSaving(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [planLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (planLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-400 text-sm">Building your grocery list…</div>
+      </div>
+    );
+  }
 
   function buildPlanParams() {
     const p = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
