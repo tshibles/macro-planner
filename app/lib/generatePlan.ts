@@ -226,9 +226,22 @@ function selectDayMeals(
       }
     }
 
-    // Fallback: best score regardless of budget (avoids an empty plan).
-    usedSet.add(scored[0].m.id);
-    return scored[0].m;
+    // Fallback: nothing fits budget — pick the meal with the lowest marginal
+    // grocery cost to minimise the overrun rather than picking the best score.
+    const currentTotal = computeCartTotal(localCart, multiplier);
+    let cheapestIdx = 0;
+    let cheapestMarginal = Infinity;
+    for (let i = 0; i < scored.length; i++) {
+      const testCart = cloneCart(localCart);
+      addMealToCart(testCart, scored[i].m);
+      const marginal = computeCartTotal(testCart, multiplier) - currentTotal;
+      if (marginal < cheapestMarginal) {
+        cheapestMarginal = marginal;
+        cheapestIdx = i;
+      }
+    }
+    usedSet.add(scored[cheapestIdx].m.id);
+    return scored[cheapestIdx].m;
   }
 
   const breakfast = pickBest(bPool, usedTracker.breakfast, 4);
