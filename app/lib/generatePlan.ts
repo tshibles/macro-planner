@@ -111,22 +111,46 @@ function isAllowed(meal: Meal, diet: string): boolean {
   return !meal.contains.some((f) => excluded.includes(f));
 }
 
-function scoreMeal(meal: Meal, goal: string): number {
+// 0 = comfortable budget, 1 = extremely tight. Derived from how many calories
+// per dollar the plan must squeeze out of the weekly budget.
+function computeBudgetPressure(calorieTarget: number | undefined, budget: number): number {
+  if (!calorieTarget || budget <= 0) return 0;
+  const dailyBudget = budget / 7;
+  const calPerDollarNeeded = calorieTarget / dailyBudget;
+  // 200 cal/$ feels easy; 700 cal/$ is extremely tight. Linear 0→1.
+  return Math.min(1, Math.max(0, (calPerDollarNeeded - 200) / 500));
+}
+
+function scoreMeal(meal: Meal, goal: string, budgetPressure: number = 0): number {
   const proteinDensity = meal.protein / (meal.calories || 1);
+  let baseScore: number;
   switch (goal) {
     case "muscle_gain":
-      return meal.protein * 3 + proteinDensity * 200;
+      baseScore = meal.protein * 3 + proteinDensity * 200;
+      break;
     case "fat_loss":
-      return meal.protein * 3 - meal.calories * 0.3 + proteinDensity * 200;
+      baseScore = meal.protein * 3 - meal.calories * 0.3 + proteinDensity * 200;
+      break;
     case "endurance":
-      return meal.carbs * 2 + meal.calories * 0.05;
+      baseScore = meal.carbs * 2 + meal.calories * 0.05;
+      break;
     case "maintenance":
-      return meal.protein * 1.5 + meal.carbs * 0.5 - meal.fat * 0.2;
+      baseScore = meal.protein * 1.5 + meal.carbs * 0.5 - meal.fat * 0.2;
+      break;
     case "general_health":
-      return meal.protein * 2 - meal.fat * 0.5 + meal.carbs * 0.3;
+      baseScore = meal.protein * 2 - meal.fat * 0.5 + meal.carbs * 0.3;
+      break;
     default:
-      return 0;
+      baseScore = 0;
   }
+  // Under budget pressure, boost meals with high calories-per-dollar so the
+  // planner naturally shifts toward cheap staples (oats, eggs, rice, potatoes).
+  // Scale factor 0.5 keeps cost score comparable in magnitude to goal score.
+  if (budgetPressure > 0) {
+    const calPerDollar = meal.calories / (meal.cost || 0.01);
+    baseScore += calPerDollar * 0.5 * budgetPressure;
+  }
+  return baseScore;
 }
 
 function formatDate(dayOffset: number): string {
@@ -139,11 +163,14 @@ function buildPool(
   type: Meal["type"],
   diet: string,
   goal: string,
-  rng: () => number
+  rng: () => number,
+  budgetPressure: number = 0
 ): Meal[] {
   const eligible = meals.filter((m) => m.type === type && isAllowed(m, diet));
   if (eligible.length === 0) return meals.filter((m) => m.type === type).slice(0, 5);
-  const sorted = [...eligible].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
+  const sorted = [...eligible].sort(
+    (a, b) => scoreMeal(b, goal, budgetPressure) - scoreMeal(a, goal, budgetPressure)
+  );
   const topHalf = sorted.slice(0, Math.ceil(sorted.length / 2));
   const bottomHalf = sorted.slice(Math.ceil(sorted.length / 2));
   return [...shuffle(topHalf, rng), ...shuffle(bottomHalf, rng)];
@@ -186,7 +213,8 @@ function selectDayMeals(
   multiplier: number,
   calorieTarget: number | undefined,
   goal: string,
-  usedTracker: UsedTracker
+  usedTracker: UsedTracker,
+  budgetPressure: number = 0
 ): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
   // localCart tracks what we've committed within this day so overlap scoring
   // for later slots reflects intra-day purchases.
@@ -210,7 +238,7 @@ function selectDayMeals(
       const calFit =
         targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
       const overlap = overlapCount(m, localCart) * 5;
-      return { m, score: scoreMeal(m, goal) + calFit + overlap };
+      return { m, score: scoreMeal(m, goal, budgetPressure) + calFit + overlap };
     });
     scored.sort((a, b) => b.score - a.score);
 
@@ -329,6 +357,7 @@ export function generatePlan(
   calorieTarget?: number
 ): MealPlan {
   const multiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
+  const budgetPressure = computeBudgetPressure(calorieTarget, budget);
 
   const goalIndex =
     ["muscle_gain", "fat_loss", "maintenance", "endurance", "general_health"].indexOf(goal) + 1;
@@ -340,10 +369,10 @@ export function generatePlan(
     Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex;
   const rng = seededRng(seed);
 
-  const bPool = buildPool("breakfast", diet, goal, rng);
-  const lPool = buildPool("lunch", diet, goal, rng);
-  const dPool = buildPool("dinner", diet, goal, rng);
-  const sPool = buildPool("snack", diet, goal, rng);
+  const bPool = buildPool("breakfast", diet, goal, rng, budgetPressure);
+  const lPool = buildPool("lunch", diet, goal, rng, budgetPressure);
+  const dPool = buildPool("dinner", diet, goal, rng, budgetPressure);
+  const sPool = buildPool("snack", diet, goal, rng, budgetPressure);
 
   // ── Week 1: budget-aware greedy selection ──────────────────────────────────
   // We build the ingredient cart incrementally across 7 days.
@@ -368,7 +397,8 @@ export function generatePlan(
       multiplier,
       calorieTarget,
       goal,
-      usedTracker
+      usedTracker,
+      budgetPressure
     );
 
     // Scale portions to hit calorie target (cap at 2.5× for realism)
