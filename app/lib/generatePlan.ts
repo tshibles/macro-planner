@@ -174,6 +174,42 @@ function freshUsedTracker(): UsedTracker {
   };
 }
 
+// ── Calorie Balancer ─────────────────────────────────────────────────────────
+// Swaps meals between the highest and lowest calorie days until variance < 200.
+
+type MealKey = "breakfast" | "lunch" | "dinner" | "snack";
+
+function balanceDailyCalories(week: DayMeals[]): void {
+  for (let iter = 0; iter < 20; iter++) {
+    let maxIdx = 0, minIdx = 0;
+    for (let i = 1; i < week.length; i++) {
+      if (week[i].dailyCalories > week[maxIdx].dailyCalories) maxIdx = i;
+      if (week[i].dailyCalories < week[minIdx].dailyCalories) minIdx = i;
+    }
+    if (week[maxIdx].dailyCalories - week[minIdx].dailyCalories < 200) break;
+
+    let bestKey: MealKey | null = null;
+    let bestReduction = 0;
+    for (const key of ["breakfast", "lunch", "dinner", "snack"] as MealKey[]) {
+      const diff = week[maxIdx][key].calories - week[minIdx][key].calories;
+      if (diff > bestReduction) { bestReduction = diff; bestKey = key; }
+    }
+    if (!bestKey) break;
+
+    const temp = week[maxIdx][bestKey];
+    week[maxIdx][bestKey] = week[minIdx][bestKey];
+    week[minIdx][bestKey] = temp;
+
+    for (const day of [week[maxIdx], week[minIdx]]) {
+      day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+      day.dailyProtein = day.breakfast.protein + day.lunch.protein + day.dinner.protein + day.snack.protein;
+      day.dailyCarbs   = day.breakfast.carbs   + day.lunch.carbs   + day.dinner.carbs   + day.snack.carbs;
+      day.dailyFat     = day.breakfast.fat     + day.lunch.fat     + day.dinner.fat     + day.snack.fat;
+      day.dailyCost    = +(day.breakfast.cost  + day.lunch.cost    + day.dinner.cost    + day.snack.cost).toFixed(2);
+    }
+  }
+}
+
 // ── Day Selection ────────────────────────────────────────────────────────────
 
 function selectDayMeals(
@@ -184,12 +220,20 @@ function selectDayMeals(
   cart: Cart,
   calorieTarget: number | undefined,
   goal: string,
-  usedTracker: UsedTracker
+  usedTracker: UsedTracker,
+  budget: number,
+  stateMultiplier: number,
+  totalRemainingSlots: number   // includes today's 4 slots
 ): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
-  const localCart = cloneCart(cart);
+  const dayCart = cloneCart(cart);
+  const originalCartCost = computeCartTotal(cart, stateMultiplier);
+  // Per-slot budget share based on remaining weekly capacity
+  const budgetPerSlot = totalRemainingSlots > 0
+    ? (budget - originalCartCost) / totalRemainingSlots
+    : 0;
   let allocatedCals = 0;
 
-  function pickBest(pool: Meal[], usedSet: Set<string>, remainingSlots: number): Meal {
+  function pickBest(pool: Meal[], usedSet: Set<string>, slotsInDay: number): Meal {
     let available = pool.filter((m) => !usedSet.has(m.id));
     if (available.length === 0) {
       usedSet.clear();
@@ -198,31 +242,40 @@ function selectDayMeals(
 
     const targetCals =
       calorieTarget !== undefined
-        ? (calorieTarget - allocatedCals) / remainingSlots
+        ? (calorieTarget - allocatedCals) / slotsInDay
         : undefined;
 
+    const dayCartCost = computeCartTotal(dayCart, stateMultiplier);
+
     const scored = available.map((m) => {
-      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
-      const overlap = overlapCount(m, localCart) * 5;
-      return { m, score: scoreMeal(m, goal) + calFit + overlap };
+      // Compute the marginal grocery-package cost of adding this meal to the cart.
+      const testCart = cloneCart(dayCart);
+      addMealToCart(testCart, m);
+      const marginalCost = computeCartTotal(testCart, stateMultiplier) - dayCartCost;
+
+      const calFit  = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
+      const overlap = overlapCount(m, dayCart) * 5;
+      // Heavy penalty when this meal's grocery package cost exceeds its budget share.
+      const budgetPenalty = marginalCost > budgetPerSlot
+        ? (marginalCost - budgetPerSlot) * 40
+        : 0;
+      return { m, score: scoreMeal(m, goal) + calFit + overlap - budgetPenalty };
     });
     scored.sort((a, b) => b.score - a.score);
 
     const best = scored[0].m;
     usedSet.add(best.id);
+    addMealToCart(dayCart, best);
     return best;
   }
 
   const breakfast = pickBest(bPool, usedTracker.breakfast, 4);
-  addMealToCart(localCart, breakfast);
   allocatedCals += breakfast.calories;
 
   const lunch = pickBest(lPool, usedTracker.lunch, 3);
-  addMealToCart(localCart, lunch);
   allocatedCals += lunch.calories;
 
   const dinner = pickBest(dPool, usedTracker.dinner, 2);
-  addMealToCart(localCart, dinner);
   allocatedCals += dinner.calories;
 
   const snack = pickBest(sPool, usedTracker.snack, 1);
@@ -268,8 +321,10 @@ export function generatePlan(
   const usedTracker = freshUsedTracker();
 
   for (let i = 0; i < week1Length; i++) {
+    const totalRemainingSlots = (week1Length - i) * 4;
     const { breakfast, lunch, dinner, snack } = selectDayMeals(
-      bPool, lPool, dPool, sPool, cart, calorieTarget, goal, usedTracker
+      bPool, lPool, dPool, sPool, cart, calorieTarget, goal, usedTracker,
+      budget, stateMultiplier, totalRemainingSlots
     );
 
     addMealToCart(cart, breakfast);
@@ -294,7 +349,19 @@ export function generatePlan(
     });
   }
 
-  const weeklyEstimatedCost = +computeCartTotal(cart, stateMultiplier).toFixed(2);
+  // Balance calorie distribution across days by swapping meals between high/low days.
+  balanceDailyCalories(week1Days);
+
+  // Recompute the grocery cart to reflect any calorie-balance swaps.
+  const finalCart: Cart = new Map();
+  for (const day of week1Days) {
+    addMealToCart(finalCart, day.breakfast);
+    addMealToCart(finalCart, day.lunch);
+    addMealToCart(finalCart, day.dinner);
+    addMealToCart(finalCart, day.snack);
+  }
+
+  const weeklyEstimatedCost = +computeCartTotal(finalCart, stateMultiplier).toFixed(2);
 
   // ── Week 2+: repeat week 1 pattern with updated dates/indices ─────────────
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
