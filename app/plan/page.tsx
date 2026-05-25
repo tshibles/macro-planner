@@ -72,6 +72,11 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
   }, []);
 
   useEffect(() => {
+    // Skip USDA lookup for scaled meals — our scaled values are authoritative
+    if (meal.portionMultiplier && meal.portionMultiplier > 1) {
+      setUsdaLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setUsdaLoading(true);
     fetch(`/api/usda?query=${encodeURIComponent(meal.usdaQuery)}`, { signal: controller.signal })
@@ -82,7 +87,7 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
       .catch(() => {})
       .finally(() => setUsdaLoading(false));
     return () => controller.abort();
-  }, [meal.usdaQuery]);
+  }, [meal.usdaQuery, meal.portionMultiplier]);
 
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current) onClose();
@@ -140,7 +145,11 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
               <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
                 Macro Breakdown
               </h3>
-              {usdaLoading ? (
+              {meal.portionMultiplier && meal.portionMultiplier > 1 ? (
+                <span className="text-xs text-amber-400/70">
+                  ×{meal.portionMultiplier.toFixed(1)} scaled portions
+                </span>
+              ) : usdaLoading ? (
                 <span className="text-xs text-gray-600 flex items-center gap-1.5">
                   <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

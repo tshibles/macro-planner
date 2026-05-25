@@ -20,7 +20,8 @@
       "Bash(npx next *)",
       "Bash(npx ts-node -e ' *)",
       "Bash(npx ts-node *)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(awk '{print $2+0}')"
     ]
   }
 }

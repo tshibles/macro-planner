@@ -259,6 +259,65 @@ function selectDayMeals(
   return { breakfast, lunch, dinner, snack };
 }
 
+// ── Portion Scaling ───────────────────────────────────────────────────────────
+// After meal selection, scale macros and ingredient quantities so the day's
+// total hits the user's calorie target. Cap at 2.5× to keep portions realistic.
+
+function formatScaledNum(n: number): string {
+  const r = Math.round(n * 4) / 4;
+  const whole = Math.floor(r);
+  const frac = r - whole;
+  if (frac < 0.01) return String(whole || 0);
+  if (frac < 0.38) return whole > 0 ? `${whole} 1/4` : "1/4";
+  if (frac < 0.63) return whole > 0 ? `${whole} 1/2` : "1/2";
+  return whole > 0 ? `${whole} 3/4` : "3/4";
+}
+
+function scaleAmount(amount: string, multiplier: number): string {
+  const s = amount.trim();
+  if (/^(to taste|pinch|dash|handful|few|as needed|optional)/i.test(s)) return s;
+
+  let num: number | null = null;
+  let rest = "";
+
+  const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)(.*)/);
+  if (mixed) {
+    num = parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3]);
+    rest = mixed[4];
+  } else {
+    const frac = s.match(/^(\d+)\/(\d+)(.*)/);
+    if (frac) {
+      num = parseInt(frac[1]) / parseInt(frac[2]);
+      rest = frac[3];
+    } else {
+      const dec = s.match(/^(\d+(?:\.\d+)?)(.*)/);
+      if (dec) {
+        num = parseFloat(dec[1]);
+        rest = dec[2];
+      }
+    }
+  }
+
+  if (num === null) return s;
+  return formatScaledNum(num * multiplier) + rest;
+}
+
+function scaleMeal(meal: Meal, multiplier: number): Meal {
+  return {
+    ...meal,
+    calories: Math.round(meal.calories * multiplier),
+    protein: Math.round(meal.protein * multiplier),
+    carbs: Math.round(meal.carbs * multiplier),
+    fat: Math.round(meal.fat * multiplier),
+    cost: +((meal.cost * multiplier).toFixed(2)),
+    portionMultiplier: +multiplier.toFixed(2),
+    ingredients: meal.ingredients.map((ing) => ({
+      ...ing,
+      amount: scaleAmount(ing.amount, multiplier),
+    })),
+  };
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 
 export function generatePlan(
@@ -312,32 +371,36 @@ export function generatePlan(
       usedTracker
     );
 
-    addMealToCart(cart, breakfast);
-    addMealToCart(cart, lunch);
-    addMealToCart(cart, dinner);
-    addMealToCart(cart, snack);
+    // Scale portions to hit calorie target (cap at 2.5× for realism)
+    const rawCals = breakfast.calories + lunch.calories + dinner.calories + snack.calories;
+    const portionMult =
+      calorieTarget && rawCals > 0
+        ? Math.min(2.5, Math.max(1.0, calorieTarget / rawCals))
+        : 1.0;
+    const scaledB = portionMult > 1.02 ? scaleMeal(breakfast, portionMult) : breakfast;
+    const scaledL = portionMult > 1.02 ? scaleMeal(lunch, portionMult) : lunch;
+    const scaledD = portionMult > 1.02 ? scaleMeal(dinner, portionMult) : dinner;
+    const scaledS = portionMult > 1.02 ? scaleMeal(snack, portionMult) : snack;
+
+    addMealToCart(cart, scaledB);
+    addMealToCart(cart, scaledL);
+    addMealToCart(cart, scaledD);
+    addMealToCart(cart, scaledS);
 
     week1Days.push({
       day: DAY_NAMES[i % 7],
       date: formatDate(i),
       weekIndex: 0,
       dayIndex: i,
-      breakfast,
-      lunch,
-      dinner,
-      snack,
-      dailyCalories:
-        breakfast.calories + lunch.calories + dinner.calories + snack.calories,
-      dailyProtein:
-        breakfast.protein + lunch.protein + dinner.protein + snack.protein,
-      dailyCarbs: breakfast.carbs + lunch.carbs + dinner.carbs + snack.carbs,
-      dailyFat: breakfast.fat + lunch.fat + dinner.fat + snack.fat,
-      dailyCost: +(
-        breakfast.cost +
-        lunch.cost +
-        dinner.cost +
-        snack.cost
-      ).toFixed(2),
+      breakfast: scaledB,
+      lunch: scaledL,
+      dinner: scaledD,
+      snack: scaledS,
+      dailyCalories: scaledB.calories + scaledL.calories + scaledD.calories + scaledS.calories,
+      dailyProtein: scaledB.protein + scaledL.protein + scaledD.protein + scaledS.protein,
+      dailyCarbs: scaledB.carbs + scaledL.carbs + scaledD.carbs + scaledS.carbs,
+      dailyFat: scaledB.fat + scaledL.fat + scaledD.fat + scaledS.fat,
+      dailyCost: +(scaledB.cost + scaledL.cost + scaledD.cost + scaledS.cost).toFixed(2),
     });
   }
 
