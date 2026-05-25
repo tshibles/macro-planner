@@ -72,6 +72,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "tofu":                     { unit: "block (14 oz)",   price: 2.49,  base: "oz",    capacity: 14 },
 
   // ── Eggs & Dairy ────────────────────────────────────────────────────────────
+  "egg":                      { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
   "large eggs":               { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
   "large egg":                { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
   "egg whites":               { unit: "carton",             price: 3.49, base: "count", capacity: 1 },
@@ -128,6 +129,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "green onions":             { unit: "bunch",        price: 0.99, base: "count", capacity: 1 },
   "mushrooms":                { unit: "pkg (8 oz)",   price: 2.49, base: "oz",    capacity: 8 },
   "mixed berries":            { unit: "bag (12 oz)",  price: 3.99, base: "oz",    capacity: 12 },
+  "pea":                      { unit: "bag (12 oz)",  price: 1.49, base: "oz",    capacity: 12 },
   "frozen peas":              { unit: "bag (12 oz)",  price: 1.49, base: "oz",    capacity: 12 },
   "corn":                     { unit: "can (15 oz)",  price: 0.99, base: "count", capacity: 1 },
   "shelled edamame":          { unit: "bag (12 oz)",  price: 2.99, base: "oz",    capacity: 12 },
@@ -147,6 +149,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "corn tortillas":           { unit: "pkg (30-count)",    price: 2.49, base: "count", capacity: 30 },
   "whole wheat bagel":        { unit: "pkg (6-count)",     price: 3.49, base: "count", capacity: 6 },
   "pita bread":               { unit: "pkg (6-count)",     price: 2.99, base: "count", capacity: 6 },
+  "rice":                     { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
   "cooked white rice":        { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
   "brown rice":               { unit: "bag (2 lb)",        price: 2.99, base: "tbsp",  capacity: 160 },
   "cooked rice":              { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
@@ -386,7 +389,7 @@ export function computePurchasable(
 
   // Eggs: one dozen = 12 eggs; only go to 2 dozen if the plan truly needs more than 12.
   // Math.ceil already handles this correctly; guard against parsing fallback inflating count.
-  if ((key === "large eggs" || key === "large egg") && parsed === 0) {
+  if (key === "egg" && parsed === 0) {
     // recipeCount (number of uses) is not egg count — cap at 1 dozen unless we parsed real amounts
     qty = 1;
   }

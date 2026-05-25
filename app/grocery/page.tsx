@@ -9,6 +9,7 @@ import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
 import { STATE_MULTIPLIERS, STATE_NAMES } from "@/app/data/stateMultipliers";
 import { Ingredient } from "@/app/data/meals";
 import { isPantryStaple, computePurchasable } from "@/app/data/purchasableUnits";
+import { normalizeKey } from "@/app/lib/normalizeIngredient";
 
 interface GroceryItem {
   name: string;
@@ -81,13 +82,6 @@ function computeGroceryList(
   return { regularItems, pantryItems };
 }
 
-function normalizeKey(raw: string): string {
-  return raw
-    .replace(/\([^)]*\)/g, "")
-    .replace(/,.*$/, "")
-    .trim()
-    .toLowerCase();
-}
 
 function displayName(key: string): string {
   return key.replace(/\b\w/g, (c) => c.toUpperCase());

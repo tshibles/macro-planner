@@ -1,6 +1,7 @@
 import { meals, Meal, DietaryFlag } from "@/app/data/meals";
 import { STATE_MULTIPLIERS } from "@/app/data/stateMultipliers";
 import { computePurchasable, isPantryStaple } from "@/app/data/purchasableUnits";
+import { normalizeKey } from "@/app/lib/normalizeIngredient";
 
 export interface DayMeals {
   day: string;
@@ -35,9 +36,6 @@ export interface MealPlan {
 type CartEntry = { amounts: string[]; count: number };
 type Cart = Map<string, CartEntry>;
 
-function normalizeKey(raw: string): string {
-  return raw.replace(/\([^)]*\)/g, "").replace(/,.*$/, "").trim().toLowerCase();
-}
 
 function cloneCart(cart: Cart): Cart {
   const c: Cart = new Map();
