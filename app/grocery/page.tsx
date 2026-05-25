@@ -121,6 +121,7 @@ function GroceryContent() {
 
   const [regularItems, setRegularItems] = useState<GroceryItem[]>([]);
   const [pantryItems, setPantryItems] = useState<GroceryItem[]>([]);
+  const [budgetCapMessage, setBudgetCapMessage] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
 
   useEffect(() => {
@@ -144,6 +145,7 @@ function GroceryContent() {
         const { regularItems: reg, pantryItems: pantry } = computeGroceryList(week1, stateParam);
         setRegularItems(reg);
         setPantryItems(pantry);
+        if (data.budgetCapMessage) setBudgetCapMessage(data.budgetCapMessage);
         setPlanLoading(false);
       })
       .catch(() => setPlanLoading(false));
@@ -297,6 +299,16 @@ function GroceryContent() {
             </p>
           </div>
         </div>
+
+        {/* Budget cap warning */}
+        {budgetCapMessage && (
+          <div className="mb-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4 flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <p className="text-sm text-amber-300">{budgetCapMessage}</p>
+          </div>
+        )}
 
         {/* Main grocery table */}
         <div className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden mb-8">

@@ -27,6 +27,7 @@ export interface MealPlan {
   avgDailyCalories: number;
   avgDailyProtein: number;
   calorieTarget?: number;
+  budgetCapMessage?: string;
 }
 
 // ── Ingredient Cart ──────────────────────────────────────────────────────────
@@ -346,40 +347,23 @@ function scaleMeal(meal: Meal, multiplier: number): Meal {
   };
 }
 
-// ── Main Export ──────────────────────────────────────────────────────────────
+// ── Week Builder ─────────────────────────────────────────────────────────────
+// Builds week 1 with a caller-supplied portionMultCap. Cap < 1 scales portions
+// DOWN (budget-forced reduction); cap > 1 scales UP (calorie targeting).
 
-export function generatePlan(
+function buildWeek1WithCap(
+  bPool: Meal[],
+  lPool: Meal[],
+  dPool: Meal[],
+  sPool: Meal[],
   budget: number,
+  stateMultiplier: number,
+  calorieTarget: number | undefined,
   goal: string,
-  diet: string,
   totalDays: number,
-  stateCode: string,
-  calorieTarget?: number
-): MealPlan {
-  const multiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
-  const budgetPressure = computeBudgetPressure(calorieTarget, budget);
-
-  const goalIndex =
-    ["muscle_gain", "fat_loss", "maintenance", "endurance", "general_health"].indexOf(goal) + 1;
-  const dietIndex =
-    ["", "vegetarian", "vegan", "gluten_free", "dairy_free", "halal", "kosher"].indexOf(diet) + 1;
-  const stateIndex =
-    stateCode.length >= 2 ? stateCode.charCodeAt(0) + stateCode.charCodeAt(1) : 0;
-  const seed =
-    Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex;
-  const rng = seededRng(seed);
-
-  const bPool = buildPool("breakfast", diet, goal, rng, budgetPressure);
-  const lPool = buildPool("lunch", diet, goal, rng, budgetPressure);
-  const dPool = buildPool("dinner", diet, goal, rng, budgetPressure);
-  const sPool = buildPool("snack", diet, goal, rng, budgetPressure);
-
-  // ── Week 1: budget-aware greedy selection ──────────────────────────────────
-  // We build the ingredient cart incrementally across 7 days.
-  // Each day's meal combo is chosen to stay within the weekly grocery budget
-  // while maximising goal nutrition score and ingredient overlap with the
-  // already-purchased cart (overlap = near-zero marginal cost).
-
+  budgetPressure: number,
+  portionMultCap: number
+): { days: DayMeals[]; cart: Cart } {
   const cart: Cart = new Map();
   const week1Days: DayMeals[] = [];
   const week1Length = Math.min(totalDays, 7);
@@ -387,30 +371,23 @@ export function generatePlan(
 
   for (let i = 0; i < week1Length; i++) {
     const { breakfast, lunch, dinner, snack } = selectDayMeals(
-      i,
-      bPool,
-      lPool,
-      dPool,
-      sPool,
-      cart,
-      budget,
-      multiplier,
-      calorieTarget,
-      goal,
-      usedTracker,
-      budgetPressure
+      i, bPool, lPool, dPool, sPool, cart, budget, stateMultiplier,
+      calorieTarget, goal, usedTracker, budgetPressure
     );
 
-    // Scale portions to hit calorie target (cap at 2.5× for realism)
     const rawCals = breakfast.calories + lunch.calories + dinner.calories + snack.calories;
-    const portionMult =
-      calorieTarget && rawCals > 0
-        ? Math.min(2.5, Math.max(1.0, calorieTarget / rawCals))
-        : 1.0;
-    const scaledB = portionMult > 1.02 ? scaleMeal(breakfast, portionMult) : breakfast;
-    const scaledL = portionMult > 1.02 ? scaleMeal(lunch, portionMult) : lunch;
-    const scaledD = portionMult > 1.02 ? scaleMeal(dinner, portionMult) : dinner;
-    const scaledS = portionMult > 1.02 ? scaleMeal(snack, portionMult) : snack;
+    // When cap < 1 we scale down uniformly; when cap >= 1 we scale up toward target.
+    const portionMult = portionMultCap < 1.0
+      ? portionMultCap
+      : (calorieTarget && rawCals > 0
+        ? Math.min(portionMultCap, Math.max(1.0, calorieTarget / rawCals))
+        : 1.0);
+
+    const shouldScale = Math.abs(portionMult - 1.0) > 0.02;
+    const scaledB = shouldScale ? scaleMeal(breakfast, portionMult) : breakfast;
+    const scaledL = shouldScale ? scaleMeal(lunch, portionMult) : lunch;
+    const scaledD = shouldScale ? scaleMeal(dinner, portionMult) : dinner;
+    const scaledS = shouldScale ? scaleMeal(snack, portionMult) : snack;
 
     addMealToCart(cart, scaledB);
     addMealToCart(cart, scaledL);
@@ -434,6 +411,65 @@ export function generatePlan(
     });
   }
 
+  return { days: week1Days, cart };
+}
+
+// ── Main Export ──────────────────────────────────────────────────────────────
+
+export function generatePlan(
+  budget: number,
+  goal: string,
+  diet: string,
+  totalDays: number,
+  stateCode: string,
+  calorieTarget?: number
+): MealPlan {
+  const stateMultiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
+  const budgetPressure = computeBudgetPressure(calorieTarget, budget);
+
+  const goalIndex =
+    ["muscle_gain", "fat_loss", "maintenance", "endurance", "general_health"].indexOf(goal) + 1;
+  const dietIndex =
+    ["", "vegetarian", "vegan", "gluten_free", "dairy_free", "halal", "kosher"].indexOf(diet) + 1;
+  const stateIndex =
+    stateCode.length >= 2 ? stateCode.charCodeAt(0) + stateCode.charCodeAt(1) : 0;
+  const seed =
+    Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex;
+  const rng = seededRng(seed);
+
+  const bPool = buildPool("breakfast", diet, goal, rng, budgetPressure);
+  const lPool = buildPool("lunch", diet, goal, rng, budgetPressure);
+  const dPool = buildPool("dinner", diet, goal, rng, budgetPressure);
+  const sPool = buildPool("snack", diet, goal, rng, budgetPressure);
+
+  const buildWeek = (cap: number) =>
+    buildWeek1WithCap(
+      bPool, lPool, dPool, sPool,
+      budget, stateMultiplier, calorieTarget, goal, totalDays, budgetPressure,
+      cap
+    );
+
+  // Build week 1 at maximum allowed scaling (2.5× for realism).
+  let { days: week1Days, cart } = buildWeek(2.5);
+  let weeklyEstimatedCost = +computeCartTotal(cart, stateMultiplier).toFixed(2);
+
+  // ── Hard budget ceiling ────────────────────────────────────────────────────
+  // If scaling pushed the grocery total over budget, binary-search for the
+  // largest portionMultCap that keeps the total within budget. Budget wins over
+  // calories — always.
+  if (weeklyEstimatedCost > budget) {
+    let lo = 0.01, hi = 2.5;
+    for (let iter = 0; iter < 20; iter++) {
+      const mid = (lo + hi) / 2;
+      const { cart: tc } = buildWeek(mid);
+      if (computeCartTotal(tc, stateMultiplier) <= budget) lo = mid; else hi = mid;
+    }
+    const capped = buildWeek(lo);
+    week1Days = capped.days;
+    cart = capped.cart;
+    weeklyEstimatedCost = +computeCartTotal(cart, stateMultiplier).toFixed(2);
+  }
+
   // ── Week 2+: repeat week 1 pattern with updated dates/indices ─────────────
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
     if (i < week1Days.length) return week1Days[i];
@@ -452,16 +488,19 @@ export function generatePlan(
     days.slice(w * 7, w * 7 + 7)
   );
 
-  // The weekly grocery cost is the actual cost of purchasing all week-1
-  // ingredients at retail (packages, not per-serving fractions).
-  const weeklyEstimatedCost = +computeCartTotal(cart, multiplier).toFixed(2);
-
   const avgDailyCalories = Math.round(
-    days.reduce((s, d) => s + d.dailyCalories, 0) / days.length
+    week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length
   );
   const avgDailyProtein = Math.round(
-    days.reduce((s, d) => s + d.dailyProtein, 0) / days.length
+    week1Days.reduce((s, d) => s + d.dailyProtein, 0) / week1Days.length
   );
+
+  let budgetCapMessage: string | undefined;
+  if (calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.99)) {
+    budgetCapMessage =
+      `Hitting ${avgDailyCalories.toLocaleString()} calories on your $${budget} budget` +
+      ` — increase your budget to get closer to your ${calorieTarget.toLocaleString()} cal goal`;
+  }
 
   return {
     days,
@@ -471,5 +510,6 @@ export function generatePlan(
     avgDailyCalories,
     avgDailyProtein,
     calorieTarget,
+    budgetCapMessage,
   };
 }
