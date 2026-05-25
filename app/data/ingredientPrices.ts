@@ -133,6 +133,9 @@ const PRICES: Record<string, number> = {
   "chicken broth": 0.30,
   "salsa": 0.20,
   "hummus": 0.35,
+  "strawberry jam": 0.15,
+  "jam": 0.15,
+  "fruit preserves": 0.15,
   // ── Nuts, Seeds & Oils ───────────────────────────────────────────────────
   "olive oil": 0.15,
   "vegetable oil": 0.05,
