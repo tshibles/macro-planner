@@ -60,6 +60,8 @@ const PRICES: Record<string, number> = {
   "bell pepper": 0.60,
   "broccoli florets": 0.40,
   "broccoli": 0.40,
+  "potato": 0.30,
+  "potatoes": 0.30,
   "sweet potato": 0.50,
   "medium sweet potato": 0.50,
   "asparagus spears": 0.50,
