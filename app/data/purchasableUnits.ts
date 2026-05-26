@@ -110,6 +110,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "bell pepper":              { unit: "pepper",       price: 0.99, base: "count", capacity: 1 },
   "broccoli florets":         { unit: "bag (12 oz)",  price: 1.99, base: "oz",    capacity: 12 },
   "broccoli":                 { unit: "head",         price: 1.99, base: "count", capacity: 1 },
+  "potato":                   { unit: "bag (5 lb)",   price: 3.99, base: "count", capacity: 8 },
   "sweet potato":             { unit: "sweet potato", price: 0.99, base: "count", capacity: 1 },
   "medium sweet potato":      { unit: "sweet potato", price: 0.99, base: "count", capacity: 1 },
   "asparagus spears":         { unit: "bunch",        price: 2.99, base: "count", capacity: 1 },

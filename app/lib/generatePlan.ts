@@ -1,7 +1,6 @@
 import { meals, Meal, DietaryFlag } from "@/app/data/meals";
 import { STATE_MULTIPLIERS } from "@/app/data/stateMultipliers";
-import { computePurchasable, isPantryStaple } from "@/app/data/purchasableUnits";
-import { normalizeKey } from "@/app/lib/normalizeIngredient";
+import { buildWeeklyCart, PREMIUM_INGREDIENT_CHECKS, CartItem } from "@/app/lib/groceryCart";
 
 export interface DayMeals {
   day: string;
@@ -19,61 +18,26 @@ export interface DayMeals {
   dailyCost: number;
 }
 
+export interface WeeklyCartSummary {
+  items: CartItem[];
+  totalCost: number;
+}
+
 export interface MealPlan {
   days: DayMeals[];
   weeks: DayMeals[][];
   totalDays: number;
+  numWeeks: number;
   weeklyEstimatedCost: number;
+  totalPlanCost: number;
   avgDailyCalories: number;
   avgDailyProtein: number;
   calorieTarget?: number;
   budgetCapMessage?: string;
+  weeklyCart: WeeklyCartSummary;
 }
 
-// ── Ingredient Cart ──────────────────────────────────────────────────────────
-
-type CartEntry = { amounts: string[]; count: number };
-type Cart = Map<string, CartEntry>;
-
-function cloneCart(cart: Cart): Cart {
-  const c: Cart = new Map();
-  cart.forEach((v, k) => c.set(k, { amounts: [...v.amounts], count: v.count }));
-  return c;
-}
-
-function addMealToCart(cart: Cart, meal: Meal): void {
-  for (const ing of meal.ingredients) {
-    const key = normalizeKey(ing.item);
-    const existing = cart.get(key);
-    if (existing) {
-      existing.amounts.push(ing.amount);
-      existing.count++;
-    } else {
-      cart.set(key, { amounts: [ing.amount], count: 1 });
-    }
-  }
-}
-
-function computeCartTotal(cart: Cart, multiplier: number): number {
-  let total = 0;
-  cart.forEach(({ amounts, count }, key) => {
-    if (isPantryStaple(key)) return;
-    total += computePurchasable(key, amounts, count, multiplier).total;
-  });
-  return total;
-}
-
-// Number of non-pantry ingredients in `meal` that are already in the cart.
-function overlapCount(meal: Meal, cart: Cart): number {
-  let n = 0;
-  for (const ing of meal.ingredients) {
-    const key = normalizeKey(ing.item);
-    if (cart.has(key) && !isPantryStaple(key)) n++;
-  }
-  return n;
-}
-
-// ── Pool / Scoring Helpers ───────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -96,11 +60,11 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
 
 const EXCLUDED_FLAGS: Record<string, DietaryFlag[]> = {
   vegetarian: ["meat", "fish"],
-  vegan: ["meat", "dairy", "fish", "eggs"],
+  vegan:      ["meat", "dairy", "fish", "eggs"],
   gluten_free: ["gluten"],
-  dairy_free: ["dairy"],
-  halal: ["pork"],
-  kosher: ["pork"],
+  dairy_free:  ["dairy"],
+  halal:       ["pork"],
+  kosher:      ["pork"],
 };
 
 function isAllowed(meal: Meal, diet: string): boolean {
@@ -132,31 +96,39 @@ function formatDate(dayOffset: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// ── Budget-filtered pool builder ─────────────────────────────────────────────
-// Filters to meals at or under the per-meal budget, sorted by goal score.
-// Falls back to the full eligible pool if nothing fits the budget.
+// ── Pool Builder ──────────────────────────────────────────────────────────────
+// Meals are eligible only if their premium ingredients were purchased in the cart.
+// Falls back to the diet-allowed pool if filtering leaves fewer than 3 options.
 
 function buildPool(
   type: Meal["type"],
   diet: string,
   goal: string,
   rng: () => number,
-  perMealBudget: number
+  cartKeys: Set<string>
 ): Meal[] {
-  const eligible = meals.filter((m) => m.type === type && isAllowed(m, diet));
-  const pool = eligible.length > 0 ? eligible : meals.filter((m) => m.type === type).slice(0, 5);
+  const eligible = meals.filter((m) => {
+    if (m.type !== type) return false;
+    if (!isAllowed(m, diet)) return false;
+    for (const check of PREMIUM_INGREDIENT_CHECKS) {
+      const mealUsesIt = m.ingredients.some((ing) => check.pattern.test(ing.item));
+      if (mealUsesIt && !cartKeys.has(check.cartKey)) return false;
+    }
+    return true;
+  });
 
-  // Prefer meals within the per-meal budget; fall back to all if none qualify.
-  const affordable = pool.filter((m) => m.cost <= perMealBudget);
-  const source = affordable.length > 0 ? affordable : pool;
+  const pool =
+    eligible.length >= 3
+      ? eligible
+      : meals.filter((m) => m.type === type && isAllowed(m, diet)).slice(0, 8);
 
-  const sorted = [...source].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
+  const sorted = [...pool].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
   const topHalf = sorted.slice(0, Math.ceil(sorted.length / 2));
   const bottomHalf = sorted.slice(Math.ceil(sorted.length / 2));
   return [...shuffle(topHalf, rng), ...shuffle(bottomHalf, rng)];
 }
 
-// ── Round-Robin Variety Tracker ──────────────────────────────────────────────
+// ── Variety Tracker ───────────────────────────────────────────────────────────
 
 interface UsedTracker {
   breakfast: Set<string>;
@@ -174,7 +146,7 @@ function freshUsedTracker(): UsedTracker {
   };
 }
 
-// ── Calorie Balancer ─────────────────────────────────────────────────────────
+// ── Calorie Balancer ──────────────────────────────────────────────────────────
 // Swaps meals between the highest and lowest calorie days until variance < 200.
 
 type MealKey = "breakfast" | "lunch" | "dinner" | "snack";
@@ -202,88 +174,64 @@ function balanceDailyCalories(week: DayMeals[]): void {
 
     for (const day of [week[maxIdx], week[minIdx]]) {
       day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
-      day.dailyProtein = day.breakfast.protein + day.lunch.protein + day.dinner.protein + day.snack.protein;
-      day.dailyCarbs   = day.breakfast.carbs   + day.lunch.carbs   + day.dinner.carbs   + day.snack.carbs;
-      day.dailyFat     = day.breakfast.fat     + day.lunch.fat     + day.dinner.fat     + day.snack.fat;
-      day.dailyCost    = +(day.breakfast.cost  + day.lunch.cost    + day.dinner.cost    + day.snack.cost).toFixed(2);
+      day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
+      day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
+      day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
+      day.dailyCost     = +(day.breakfast.cost   + day.lunch.cost     + day.dinner.cost     + day.snack.cost).toFixed(2);
     }
   }
 }
 
-// ── Day Selection ────────────────────────────────────────────────────────────
+// ── Day Meal Selector ─────────────────────────────────────────────────────────
+// Picks meals using goal scoring + calorie targeting. No budget penalty here —
+// that's already handled by the cart-filtered pools.
 
 function selectDayMeals(
   bPool: Meal[],
   lPool: Meal[],
   dPool: Meal[],
   sPool: Meal[],
-  cart: Cart,
   calorieTarget: number | undefined,
   goal: string,
-  usedTracker: UsedTracker,
-  budget: number,
-  stateMultiplier: number,
-  totalRemainingSlots: number   // includes today's 4 slots
+  usedTracker: UsedTracker
 ): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
-  const dayCart = cloneCart(cart);
-  const originalCartCost = computeCartTotal(cart, stateMultiplier);
-  // Per-slot budget share based on remaining weekly capacity
-  const budgetPerSlot = totalRemainingSlots > 0
-    ? (budget - originalCartCost) / totalRemainingSlots
-    : 0;
   let allocatedCals = 0;
 
-  function pickBest(pool: Meal[], usedSet: Set<string>, slotsInDay: number): Meal {
+  function pickBest(pool: Meal[], usedSet: Set<string>, slotsRemaining: number): Meal {
     let available = pool.filter((m) => !usedSet.has(m.id));
     if (available.length === 0) {
       usedSet.clear();
-      available = pool;
+      available = [...pool];
     }
 
     const targetCals =
       calorieTarget !== undefined
-        ? (calorieTarget - allocatedCals) / slotsInDay
+        ? (calorieTarget - allocatedCals) / slotsRemaining
         : undefined;
 
-    const dayCartCost = computeCartTotal(dayCart, stateMultiplier);
-
     const scored = available.map((m) => {
-      // Compute the marginal grocery-package cost of adding this meal to the cart.
-      const testCart = cloneCart(dayCart);
-      addMealToCart(testCart, m);
-      const marginalCost = computeCartTotal(testCart, stateMultiplier) - dayCartCost;
-
-      const calFit  = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
-      const overlap = overlapCount(m, dayCart) * 5;
-      // Heavy penalty when this meal's grocery package cost exceeds its budget share.
-      const budgetPenalty = marginalCost > budgetPerSlot
-        ? (marginalCost - budgetPerSlot) * 40
-        : 0;
-      return { m, score: scoreMeal(m, goal) + calFit + overlap - budgetPenalty };
+      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
+      return { m, score: scoreMeal(m, goal) + calFit };
     });
     scored.sort((a, b) => b.score - a.score);
 
     const best = scored[0].m;
     usedSet.add(best.id);
-    addMealToCart(dayCart, best);
     return best;
   }
 
   const breakfast = pickBest(bPool, usedTracker.breakfast, 4);
   allocatedCals += breakfast.calories;
-
   const lunch = pickBest(lPool, usedTracker.lunch, 3);
   allocatedCals += lunch.calories;
-
   const dinner = pickBest(dPool, usedTracker.dinner, 2);
   allocatedCals += dinner.calories;
-
   const snack = pickBest(sPool, usedTracker.snack, 1);
 
   return { breakfast, lunch, dinner, snack };
 }
 
-// ── Main Export ──────────────────────────────────────────────────────────────
+// ── Main Export ───────────────────────────────────────────────────────────────
 
 export function generatePlan(
   budget: number,
@@ -294,43 +242,36 @@ export function generatePlan(
   calorieTarget?: number
 ): MealPlan {
   const stateMultiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
+  const numWeeks = Math.ceil(totalDays / 7);
 
-  // Per-meal budget: weekly budget divided by 28 meal slots (4 meals × 7 days).
-  // Adjusted for state cost-of-living so a $60 budget in a high-cost state
-  // filters to similarly affordable meals.
-  const perMealBudget = budget / 28 / stateMultiplier;
+  // Step 1: Build the weekly grocery cart from the budget allocation.
+  const cart = buildWeeklyCart(budget, stateMultiplier, diet);
 
+  // Step 2: Seed the RNG deterministically so the same inputs always produce the same plan.
   const goalIndex =
     ["muscle_gain", "fat_loss", "maintenance", "endurance", "general_health"].indexOf(goal) + 1;
   const dietIndex =
     ["", "vegetarian", "vegan", "gluten_free", "dairy_free", "halal", "kosher"].indexOf(diet) + 1;
   const stateIndex =
     stateCode.length >= 2 ? stateCode.charCodeAt(0) + stateCode.charCodeAt(1) : 0;
-  const seed =
-    Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex;
+  const seed = Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex;
   const rng = seededRng(seed);
 
-  const bPool = buildPool("breakfast", diet, goal, rng, perMealBudget);
-  const lPool = buildPool("lunch", diet, goal, rng, perMealBudget);
-  const dPool = buildPool("dinner", diet, goal, rng, perMealBudget);
-  const sPool = buildPool("snack", diet, goal, rng, perMealBudget);
+  // Step 3: Build meal pools filtered to only meals whose premium ingredients are in the cart.
+  const bPool = buildPool("breakfast", diet, goal, rng, cart.ingredientKeys);
+  const lPool = buildPool("lunch",     diet, goal, rng, cart.ingredientKeys);
+  const dPool = buildPool("dinner",    diet, goal, rng, cart.ingredientKeys);
+  const sPool = buildPool("snack",     diet, goal, rng, cart.ingredientKeys);
 
-  const cart: Cart = new Map();
+  // Step 4: Assign 7 days of meals (the Week 1 template repeated for longer plans).
   const week1Days: DayMeals[] = [];
   const week1Length = Math.min(totalDays, 7);
   const usedTracker = freshUsedTracker();
 
   for (let i = 0; i < week1Length; i++) {
-    const totalRemainingSlots = (week1Length - i) * 4;
     const { breakfast, lunch, dinner, snack } = selectDayMeals(
-      bPool, lPool, dPool, sPool, cart, calorieTarget, goal, usedTracker,
-      budget, stateMultiplier, totalRemainingSlots
+      bPool, lPool, dPool, sPool, calorieTarget, goal, usedTracker
     );
-
-    addMealToCart(cart, breakfast);
-    addMealToCart(cart, lunch);
-    addMealToCart(cart, dinner);
-    addMealToCart(cart, snack);
 
     week1Days.push({
       day: DAY_NAMES[i % 7],
@@ -342,28 +283,17 @@ export function generatePlan(
       dinner,
       snack,
       dailyCalories: breakfast.calories + lunch.calories + dinner.calories + snack.calories,
-      dailyProtein: breakfast.protein + lunch.protein + dinner.protein + snack.protein,
-      dailyCarbs: breakfast.carbs + lunch.carbs + dinner.carbs + snack.carbs,
-      dailyFat: breakfast.fat + lunch.fat + dinner.fat + snack.fat,
-      dailyCost: +(breakfast.cost + lunch.cost + dinner.cost + snack.cost).toFixed(2),
+      dailyProtein:  breakfast.protein  + lunch.protein  + dinner.protein  + snack.protein,
+      dailyCarbs:    breakfast.carbs    + lunch.carbs    + dinner.carbs    + snack.carbs,
+      dailyFat:      breakfast.fat      + lunch.fat      + dinner.fat      + snack.fat,
+      dailyCost:     +(breakfast.cost   + lunch.cost     + dinner.cost     + snack.cost).toFixed(2),
     });
   }
 
-  // Balance calorie distribution across days by swapping meals between high/low days.
+  // Step 5: Balance calorie distribution across days.
   balanceDailyCalories(week1Days);
 
-  // Recompute the grocery cart to reflect any calorie-balance swaps.
-  const finalCart: Cart = new Map();
-  for (const day of week1Days) {
-    addMealToCart(finalCart, day.breakfast);
-    addMealToCart(finalCart, day.lunch);
-    addMealToCart(finalCart, day.dinner);
-    addMealToCart(finalCart, day.snack);
-  }
-
-  const weeklyEstimatedCost = +computeCartTotal(finalCart, stateMultiplier).toFixed(2);
-
-  // ── Week 2+: repeat week 1 pattern with updated dates/indices ─────────────
+  // Step 6: Expand to full plan length — week 1 repeats every subsequent week.
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
     if (i < week1Days.length) return week1Days[i];
     const template = week1Days[i % 7];
@@ -376,7 +306,6 @@ export function generatePlan(
     };
   });
 
-  const numWeeks = Math.ceil(totalDays / 7);
   const weeks: DayMeals[][] = Array.from({ length: numWeeks }, (_, w) =>
     days.slice(w * 7, w * 7 + 7)
   );
@@ -388,21 +317,28 @@ export function generatePlan(
     week1Days.reduce((s, d) => s + d.dailyProtein, 0) / week1Days.length
   );
 
+  const weeklyEstimatedCost = cart.totalCost;
+  const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
+
   let budgetCapMessage: string | undefined;
   if (calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.99)) {
     budgetCapMessage =
-      `Hitting ${avgDailyCalories.toLocaleString()} calories on your $${budget} budget` +
-      ` — increase your budget to unlock higher-calorie meals and get closer to your ${calorieTarget.toLocaleString()} cal goal`;
+      `Hitting ${avgDailyCalories.toLocaleString()} calories on your $${budget}/week budget` +
+      ` — increase your budget to unlock higher-calorie ingredients and get closer to your` +
+      ` ${calorieTarget.toLocaleString()} cal goal`;
   }
 
   return {
     days,
     weeks,
     totalDays,
+    numWeeks,
     weeklyEstimatedCost,
+    totalPlanCost,
     avgDailyCalories,
     avgDailyProtein,
     calorieTarget,
     budgetCapMessage,
+    weeklyCart: { items: cart.items, totalCost: cart.totalCost },
   };
 }

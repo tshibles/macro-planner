@@ -577,6 +577,11 @@ function PlanContent() {
                   ? `$${budgetDiff.toFixed(2)} under budget`
                   : `$${Math.abs(budgetDiff).toFixed(2)} over budget`}
               </p>
+              {plan.numWeeks > 1 && (
+                <p className="text-xs mt-1 text-gray-600">
+                  ${plan.totalPlanCost.toFixed(2)} total · {plan.numWeeks} weeks
+                </p>
+              )}
             </div>
             <div className="bg-white/[0.04] border border-white/8 rounded-2xl px-5 py-4">
               <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">Avg. daily calories</p>

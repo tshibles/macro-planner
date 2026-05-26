@@ -2,86 +2,26 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import type { DayMeals } from "@/app/lib/generatePlan";
+import type { DayMeals, MealPlan } from "@/app/lib/generatePlan";
 import { getTierById } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
 import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
 import { STATE_MULTIPLIERS, STATE_NAMES } from "@/app/data/stateMultipliers";
-import { Ingredient } from "@/app/data/meals";
-import { isPantryStaple, computePurchasable } from "@/app/data/purchasableUnits";
+import { isPantryStaple } from "@/app/data/purchasableUnits";
 import { normalizeKey } from "@/app/lib/normalizeIngredient";
 
-interface GroceryItem {
-  name: string;
-  amounts: string[];
-  count: number;
-  purchaseLabel: string;  // e.g. "2 lbs", "1 dozen"
-  unitPrice: number;      // state-adjusted price per purchasable unit
-  total: number;
-  isPantry: boolean;
-}
-
-function computeGroceryList(
-  week1: DayMeals[],
-  stateCode: string
-): { regularItems: GroceryItem[]; pantryItems: GroceryItem[] } {
-  const multiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
-
-  // Collect every ingredient from every meal in week 1
-  const allIngredients: Ingredient[] = [];
+function extractPantryItems(week1: DayMeals[]): string[] {
+  const seen = new Set<string>();
   for (const day of week1) {
     for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
       for (const ing of meal.ingredients) {
-        allIngredients.push(ing);
+        const key = normalizeKey(ing.item);
+        if (isPantryStaple(key)) seen.add(key);
       }
     }
   }
-
-  // Consolidate by normalized ingredient name
-  const map = new Map<string, { amounts: string[]; count: number }>();
-  for (const ing of allIngredients) {
-    const key = normalizeKey(ing.item);
-    const existing = map.get(key);
-    if (existing) {
-      existing.amounts.push(ing.amount);
-      existing.count += 1;
-    } else {
-      map.set(key, { amounts: [ing.amount], count: 1 });
-    }
-  }
-
-  const regularItems: GroceryItem[] = [];
-  const pantryItems: GroceryItem[] = [];
-
-  for (const [key, { amounts, count }] of Array.from(map.entries())) {
-    const pantry = isPantryStaple(key);
-    const { label, pricePerUnit, total } = computePurchasable(key, amounts, count, multiplier);
-
-    const item: GroceryItem = {
-      name: key,
-      amounts,
-      count,
-      purchaseLabel: label,
-      unitPrice: pricePerUnit,
-      total,
-      isPantry: pantry,
-    };
-
-    if (pantry) {
-      pantryItems.push(item);
-    } else {
-      regularItems.push(item);
-    }
-  }
-
-  // Sort regular items by total cost descending
-  regularItems.sort((a, b) => b.total - a.total);
-  // Sort pantry items alphabetically
-  pantryItems.sort((a, b) => a.name.localeCompare(b.name));
-
-  return { regularItems, pantryItems };
+  return Array.from(seen).sort();
 }
-
 
 function displayName(key: string): string {
   return key.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -119,8 +59,8 @@ function GroceryContent() {
   const stateMultiplier = STATE_MULTIPLIERS[stateParam] ?? 1.0;
   const stateName = STATE_NAMES[stateParam] ?? null;
 
-  const [regularItems, setRegularItems] = useState<GroceryItem[]>([]);
-  const [pantryItems, setPantryItems] = useState<GroceryItem[]>([]);
+  const [plan, setPlan] = useState<MealPlan | null>(null);
+  const [pantryItems, setPantryItems] = useState<string[]>([]);
   const [budgetCapMessage, setBudgetCapMessage] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
 
@@ -139,12 +79,11 @@ function GroceryContent() {
       }),
     })
       .then((r) => r.json())
-      .then((data) => {
+      .then((data: MealPlan) => {
         if (cancelled) return;
+        setPlan(data);
         const week1: DayMeals[] = data.weeks?.[0] ?? [];
-        const { regularItems: reg, pantryItems: pantry } = computeGroceryList(week1, stateParam);
-        setRegularItems(reg);
-        setPantryItems(pantry);
+        setPantryItems(extractPantryItems(week1));
         if (data.budgetCapMessage) setBudgetCapMessage(data.budgetCapMessage);
         setPlanLoading(false);
       })
@@ -152,18 +91,14 @@ function GroceryContent() {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalCost = useMemo(
-    () => regularItems.reduce((s, i) => s + i.total, 0),
-    [regularItems]
-  );
+  const cartItems = plan?.weeklyCart.items ?? [];
+  const totalCost = plan?.weeklyCart.totalCost ?? 0;
 
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Save grocery list to Supabase once plan is loaded
   useEffect(() => {
-    if (planLoading || regularItems.length === 0) return;
-    const allItems = [...regularItems, ...pantryItems];
+    if (planLoading || cartItems.length === 0) return;
     setSaving(true);
     fetch("/api/grocery/save", {
       method: "POST",
@@ -178,11 +113,11 @@ function GroceryContent() {
         heightIn: heightInParam || null,
         gender: genderParam || null,
         state: stateParam || null,
-        groceryList: allItems.map((i) => ({
-          name: i.name,
-          count: i.count,
-          unitPrice: i.unitPrice,
-          total: i.total,
+        groceryList: cartItems.map((i) => ({
+          name: i.key,
+          count: i.packages,
+          unitPrice: i.pricePerUnit,
+          total: i.totalCost,
         })),
       }),
     })
@@ -190,6 +125,12 @@ function GroceryContent() {
       .catch(() => {})
       .finally(() => setSaving(false));
   }, [planLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sort by category then cost for display
+  const sortedItems = useMemo(
+    () => [...cartItems].sort((a, b) => b.totalCost - a.totalCost),
+    [cartItems]
+  );
 
   if (planLoading) {
     return (
@@ -208,6 +149,9 @@ function GroceryContent() {
     if (stateParam) p.set("state", stateParam);
     return p;
   }
+
+  const numWeeks = plan?.numWeeks ?? 1;
+  const totalPlanCost = plan?.totalPlanCost ?? totalCost;
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -260,15 +204,17 @@ function GroceryContent() {
             </span>
           </h1>
           <p className="text-sm text-gray-500 mb-3">
-            All ingredients from your Week 1 meal plan, consolidated and priced.
+            Your weekly shopping list — the same every week for the full plan.
           </p>
           <div className="flex flex-wrap gap-2">
             <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-              {tier.days}-day plan · Week 1
+              {sortedItems.length} items to buy
             </span>
-            <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-              {regularItems.length} items to buy
-            </span>
+            {numWeeks > 1 && (
+              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                {numWeeks} weeks total
+              </span>
+            )}
             {stateName && (
               <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
                 {stateName} · {stateMultiplier >= 1 ? "+" : ""}{Math.round((stateMultiplier - 1) * 100)}% regional
@@ -297,6 +243,11 @@ function GroceryContent() {
                 ? `$${(budget - totalCost).toFixed(2)} under budget`
                 : `$${(totalCost - budget).toFixed(2)} over budget`}
             </p>
+            {numWeeks > 1 && (
+              <p className="text-xs text-gray-500 mt-1">
+                ${totalPlanCost.toFixed(2)} total over {numWeeks} weeks
+              </p>
+            )}
           </div>
         </div>
 
@@ -321,13 +272,14 @@ function GroceryContent() {
 
           {/* Rows */}
           <div className="divide-y divide-white/5">
-            {regularItems.map((item) => (
+            {sortedItems.map((item) => (
               <div
-                key={item.name}
+                key={item.key}
                 className="grid grid-cols-12 gap-2 px-5 py-3 items-center hover:bg-white/[0.02] transition-colors"
               >
                 <div className="col-span-5 min-w-0">
-                  <p className="text-sm text-white font-medium truncate">{displayName(item.name)}</p>
+                  <p className="text-sm text-white font-medium truncate">{displayName(item.key)}</p>
+                  <p className="text-xs text-gray-600 capitalize">{item.category}</p>
                 </div>
                 <div className="col-span-4 text-center">
                   <span className="inline-flex items-center justify-center rounded-lg bg-white/8 text-gray-200 text-xs font-semibold px-2.5 py-1">
@@ -335,7 +287,7 @@ function GroceryContent() {
                   </span>
                 </div>
                 <div className="col-span-3 text-right">
-                  <span className="text-sm font-semibold text-white">${item.total.toFixed(2)}</span>
+                  <span className="text-sm font-semibold text-white">${item.totalCost.toFixed(2)}</span>
                 </div>
               </div>
             ))}
@@ -345,7 +297,7 @@ function GroceryContent() {
           <div className="grid grid-cols-12 gap-2 px-5 py-4 bg-white/[0.04] border-t border-white/10 items-center">
             <span className="col-span-5 text-sm font-bold text-white">Total</span>
             <span className="col-span-4 text-center text-xs text-gray-600">
-              {regularItems.length} items
+              {sortedItems.length} items
             </span>
             <span className="col-span-3 text-right text-lg font-extrabold text-emerald-300">
               ${totalCost.toFixed(2)}
@@ -359,16 +311,16 @@ function GroceryContent() {
             <div className="px-5 py-4 border-b border-white/6">
               <h2 className="text-sm font-bold text-gray-300 mb-1">Pantry Staples</h2>
               <p className="text-xs text-gray-500">
-                This list assumes you have basic pantry staples. If not, add these to your cart too.
+                These are assumed to be on hand. Add them to your cart if you need them.
               </p>
             </div>
             <div className="px-5 py-4 flex flex-wrap gap-2">
               {pantryItems.map((item) => (
                 <span
-                  key={item.name}
+                  key={item}
                   className="inline-flex items-center text-xs bg-white/5 border border-white/8 text-gray-400 rounded-full px-3 py-1"
                 >
-                  {displayName(item.name)}
+                  {displayName(item)}
                 </span>
               ))}
             </div>
