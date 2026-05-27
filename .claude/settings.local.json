@@ -24,7 +24,8 @@
       "Bash(awk '{print $2+0}')",
       "Bash(sort -t: -k2 -n)",
       "Bash(sort -t: -k2 -rn)",
-      "Bash(xargs ls -la)"
+      "Bash(xargs ls -la)",
+      "Bash(awk '{print $2}')"
     ]
   }
 }

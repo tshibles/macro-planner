@@ -104,13 +104,12 @@ function buildPool(
   goal: string,
   rng: () => number,
   cartKeys: Set<string>,
-  maxMealCost: number,
-  dislikedIds: Set<string>
+  dislikedIds: Set<string>,
+  slotCalTarget?: number
 ): Meal[] {
   const eligible = meals.filter((m) => {
     if (m.type !== type) return false;
     if (!isAllowed(m, diet)) return false;
-    if (m.cost > maxMealCost) return false;
     if (dislikedIds.has(m.id)) return false;
     for (const check of PREMIUM_INGREDIENT_CHECKS) {
       const mealUsesIt = m.ingredients.some((ing) => check.pattern.test(ing.item));
@@ -119,19 +118,23 @@ function buildPool(
     return true;
   });
 
-  // Fallback relaxes premium-ingredient gating but keeps cost ceiling and dislike filter.
+  // Fallback relaxes premium-ingredient gating but keeps dislike filter.
   const pool =
     eligible.length >= 3
       ? eligible
       : meals.filter(
-          (m) =>
-            m.type === type &&
-            isAllowed(m, diet) &&
-            m.cost <= maxMealCost &&
-            !dislikedIds.has(m.id)
+          (m) => m.type === type && isAllowed(m, diet) && !dislikedIds.has(m.id)
         ).slice(0, 8);
 
-  const sorted = [...pool].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
+  // Sort by goal score; when a per-slot calorie target is given, weight calorie
+  // proximity heavily so high-calorie meals rise to the top of the pool when
+  // the user's target demands them.
+  const sorted = [...pool].sort((a, b) => {
+    const goalDiff = scoreMeal(b, goal) - scoreMeal(a, goal);
+    if (slotCalTarget === undefined) return goalDiff;
+    const calDiff = Math.abs(a.calories - slotCalTarget) - Math.abs(b.calories - slotCalTarget);
+    return calDiff * 3 + goalDiff;
+  });
   const topHalf = sorted.slice(0, Math.ceil(sorted.length / 2));
   const bottomHalf = sorted.slice(Math.ceil(sorted.length / 2));
   return [...shuffle(topHalf, rng), ...shuffle(bottomHalf, rng)];
@@ -220,13 +223,14 @@ function selectDayMeals(
         : undefined;
 
     const scored = available.map((m) => {
-      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 0.5 : 0;
+      // Weight calorie fit strongly so the daily target actually drives selection.
+      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 3.0 : 0;
       return { m, score: scoreMeal(m, goal) + calFit };
     });
     scored.sort((a, b) => b.score - a.score);
 
-    // Randomly pick among top 4 so different users/sessions get distinct plans
-    const topN = Math.min(4, scored.length);
+    // Pick among top 2 — enough variety without drifting far from calorie target.
+    const topN = Math.min(2, scored.length);
     const pick = Math.floor(rng() * topN);
     const best = scored[pick].m;
     usedSet.add(best.id);
@@ -275,19 +279,24 @@ export function generatePlan(
   const seed = (Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex + planSalt) >>> 0;
   const rng = seededRng(seed);
 
-  // Step 3: Build meal pools filtered by cart ingredients, per-type cost ceilings, and disliked meals.
-  // Proportional daily split: dinner 40%, lunch 25%, breakfast 20%, snack 15%.
-  const daily = budget / 7;
-  const mealCostCeilings = {
-    breakfast: +(daily * 0.20).toFixed(2),
-    lunch:     +(daily * 0.25).toFixed(2),
-    dinner:    +(daily * 0.40).toFixed(2),
-    snack:     +(daily * 0.15).toFixed(2),
-  };
-  const bPool = buildPool("breakfast", diet, goal, rng, cart.ingredientKeys, mealCostCeilings.breakfast, dislikedSet);
-  const lPool = buildPool("lunch",     diet, goal, rng, cart.ingredientKeys, mealCostCeilings.lunch,     dislikedSet);
-  const dPool = buildPool("dinner",    diet, goal, rng, cart.ingredientKeys, mealCostCeilings.dinner,    dislikedSet);
-  const sPool = buildPool("snack",     diet, goal, rng, cart.ingredientKeys, mealCostCeilings.snack,     dislikedSet);
+  // Step 3: Build meal pools filtered by cart ingredients and dietary rules.
+  // Per-meal cost ceilings are intentionally omitted — the weekly cart is the real
+  // budget controller. Cost-ceiling filters systematically exclude the highest-calorie
+  // meals (which tend to cost slightly more) and cannot be hit by the meal library anyway.
+  // Per-slot calorie targets (based on typical meal-size proportions) guide pool ordering
+  // so high-calorie meals surface at the top when the user's target demands them.
+  const slotCalTargets = calorieTarget
+    ? {
+        breakfast: calorieTarget * 0.20,
+        lunch:     calorieTarget * 0.25,
+        dinner:    calorieTarget * 0.40,
+        snack:     calorieTarget * 0.15,
+      }
+    : undefined;
+  const bPool = buildPool("breakfast", diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.breakfast);
+  const lPool = buildPool("lunch",     diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.lunch);
+  const dPool = buildPool("dinner",    diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.dinner);
+  const sPool = buildPool("snack",     diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.snack);
 
   // Step 4: Assign 7 days of meals (the Week 1 template repeated for longer plans).
   const week1Days: DayMeals[] = [];
@@ -346,12 +355,19 @@ export function generatePlan(
   const weeklyEstimatedCost = cart.totalCost;
   const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
 
+  // The meal library tops out around 2,980 cal/day (700 breakfast + 860 lunch + 900 dinner + 520 snack).
+  // Show a message any time the plan falls more than 5% short of the user's target.
+  const LIBRARY_MAX_DAILY = 2980;
   let budgetCapMessage: string | undefined;
-  if (calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.99)) {
-    budgetCapMessage =
-      `Hitting ${avgDailyCalories.toLocaleString()} calories on your $${budget}/week budget` +
-      ` — increase your budget to unlock higher-calorie ingredients and get closer to your` +
-      ` ${calorieTarget.toLocaleString()} cal goal`;
+  if (calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.95)) {
+    const isLibraryCapped = avgDailyCalories >= Math.round(LIBRARY_MAX_DAILY * 0.95);
+    budgetCapMessage = isLibraryCapped
+      ? `Plan averages ${avgDailyCalories.toLocaleString()} cal/day — the current meal library` +
+        ` tops out near ${LIBRARY_MAX_DAILY.toLocaleString()} cal/day vs your` +
+        ` ${calorieTarget.toLocaleString()} cal goal`
+      : `Plan averages ${avgDailyCalories.toLocaleString()} cal/day toward your` +
+        ` ${calorieTarget.toLocaleString()} cal goal — increase your budget to unlock` +
+        ` more calorie-dense ingredients`;
   }
 
   return {
