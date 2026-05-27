@@ -4,10 +4,11 @@
 export type BaseUnit = "tbsp" | "oz" | "count";
 
 export interface PurchasableUnitDef {
-  unit: string;      // singular purchasable unit label, e.g. "lb", "dozen", "loaf"
-  price: number;     // national-average retail price per purchasable unit (pre state-multiplier)
-  base: BaseUnit;    // unit system used for aggregating recipe amounts
-  capacity: number;  // how many base units fit in one purchasable unit
+  unit: string;        // singular purchasable unit label, e.g. "lb", "dozen", "loaf"
+  price: number;       // national-average retail price per purchasable unit (pre state-multiplier)
+  base: BaseUnit;      // unit system used for aggregating recipe amounts
+  capacity: number;    // how many base units fit in one purchasable unit
+  calsPerPkg?: number; // USDA-sourced calories in one purchasable unit; set on calorie-backbone staples
 }
 
 // ── Pantry Staples ────────────────────────────────────────────────────────────
@@ -51,11 +52,12 @@ export function isPantryStaple(key: string): boolean {
 // Keys must match the normalized ingredient name (lowercase, no parens, no comma suffixes).
 export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   // ── Proteins ────────────────────────────────────────────────────────────────
-  "chicken breast":           { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16 },
+  // calsPerPkg: USDA kcal per purchasable unit (used by groceryCart to quantity-plan by calorie target)
+  "chicken breast":           { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16, calsPerPkg: 600  }, // 109 kcal/100g raw × 453g, ~10% upward adj for edible yield
   "grilled chicken breast":   { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16 },
   "cooked chicken breast":    { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16 },
-  "ground beef":              { unit: "lb",              price: 4.99,  base: "oz",    capacity: 16 },
-  "ground turkey":            { unit: "lb",              price: 4.49,  base: "oz",    capacity: 16 },
+  "ground beef":              { unit: "lb",              price: 4.99,  base: "oz",    capacity: 16, calsPerPkg: 975  }, // 215 kcal/100g 80/20 raw × 453g
+  "ground turkey":            { unit: "lb",              price: 4.49,  base: "oz",    capacity: 16, calsPerPkg: 680  }, // 150 kcal/100g 93/7 raw × 453g
   "salmon fillet":            { unit: "fillet",          price: 3.99,  base: "count", capacity: 1 },
   "smoked salmon":            { unit: "pkg (4 oz)",      price: 5.99,  base: "oz",    capacity: 4 },
   "canned tuna":              { unit: "can (5 oz)",      price: 1.49,  base: "count", capacity: 1 },
@@ -68,12 +70,12 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "ham":                      { unit: "pkg (8 oz)",      price: 2.99,  base: "oz",    capacity: 8 },
   "bacon strips":             { unit: "pkg (12 strips)", price: 5.49,  base: "count", capacity: 12 },
   "bacon":                    { unit: "pkg (12 strips)", price: 5.49,  base: "count", capacity: 12 },
-  "extra-firm tofu":          { unit: "block (14 oz)",   price: 2.49,  base: "oz",    capacity: 14 },
+  "extra-firm tofu":          { unit: "block (14 oz)",   price: 2.49,  base: "oz",    capacity: 14, calsPerPkg: 290  }, // 73 kcal/100g × 396g
   "tofu":                     { unit: "block (14 oz)",   price: 2.49,  base: "oz",    capacity: 14 },
 
   // ── Eggs & Dairy ────────────────────────────────────────────────────────────
   "egg":                      { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
-  "large eggs":               { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
+  "large eggs":               { unit: "dozen",              price: 3.49, base: "count", capacity: 12, calsPerPkg: 864  }, // 72 kcal × 12
   "large egg":                { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
   "egg whites":               { unit: "carton",             price: 3.49, base: "count", capacity: 1 },
   "plain greek yogurt":       { unit: "container (32 oz)",  price: 4.99, base: "tbsp",  capacity: 64 },
@@ -142,8 +144,8 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "cabbage slaw mix":         { unit: "bag (14 oz)",  price: 1.99, base: "oz",    capacity: 14 },
 
   // ── Grains & Bread ──────────────────────────────────────────────────────────
-  "rolled oats":              { unit: "canister (42 oz)",  price: 3.99, base: "tbsp",  capacity: 224 },
-  "whole wheat bread":        { unit: "loaf",              price: 3.49, base: "count", capacity: 18 },
+  "rolled oats":              { unit: "canister (42 oz)",  price: 3.99, base: "tbsp",  capacity: 224, calsPerPkg: 4630 }, // 389 kcal/100g dry × 1190g
+  "whole wheat bread":        { unit: "loaf",              price: 3.49, base: "count", capacity: 18,  calsPerPkg: 1350 }, // 75 kcal/slice × 18 slices
   "sourdough bread":          { unit: "loaf",              price: 4.99, base: "count", capacity: 14 },
   "large flour tortilla":     { unit: "pkg (8-count)",     price: 2.99, base: "count", capacity: 8 },
   "flour tortilla":           { unit: "pkg (8-count)",     price: 2.99, base: "count", capacity: 8 },
@@ -151,7 +153,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "whole wheat bagel":        { unit: "pkg (6-count)",     price: 3.49, base: "count", capacity: 6 },
   "pita bread":               { unit: "pkg (6-count)",     price: 2.99, base: "count", capacity: 6 },
   "rice":                     { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
-  "cooked white rice":        { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
+  "cooked white rice":        { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160, calsPerPkg: 3310 }, // 365 kcal/100g dry × 907g
   "brown rice":               { unit: "bag (2 lb)",        price: 2.99, base: "tbsp",  capacity: 160 },
   "cooked rice":              { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
   "day-old cooked rice":      { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
@@ -161,7 +163,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "cooked quinoa":            { unit: "bag (16 oz dry)",   price: 4.99, base: "tbsp",  capacity: 192 },
   "quinoa":                   { unit: "bag (16 oz dry)",   price: 4.99, base: "tbsp",  capacity: 192 },
   "penne or rotini pasta":    { unit: "box (16 oz)",       price: 1.49, base: "oz",    capacity: 16 },
-  "pasta":                    { unit: "box (16 oz)",       price: 1.49, base: "oz",    capacity: 16 },
+  "pasta":                    { unit: "box (16 oz)",       price: 1.49, base: "oz",    capacity: 16,  calsPerPkg: 1680 }, // 371 kcal/100g dry × 453g
   "soba noodles":             { unit: "pkg (9 oz)",        price: 2.99, base: "oz",    capacity: 9 },
   "plain rice cakes":         { unit: "bag (3.5 oz)",      price: 2.49, base: "count", capacity: 7 },
   "granola":                  { unit: "bag (12 oz)",       price: 3.99, base: "tbsp",  capacity: 48 },
@@ -173,11 +175,11 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "protein powder":           { unit: "container (2 lb)", price: 25.99, base: "count", capacity: 30 },
 
   // ── Canned & Packaged ───────────────────────────────────────────────────────
-  "chickpeas":                { unit: "can (15 oz)",    price: 1.29, base: "count", capacity: 1 },
-  "black beans":              { unit: "can (15 oz)",    price: 1.09, base: "count", capacity: 1 },
+  "chickpeas":                { unit: "can (15 oz)",    price: 1.29, base: "count", capacity: 1,  calsPerPkg: 700  }, // 164 kcal/100g cooked × 425g
+  "black beans":              { unit: "can (15 oz)",    price: 1.09, base: "count", capacity: 1,  calsPerPkg: 560  }, // 132 kcal/100g cooked × 425g
   "cannellini beans":         { unit: "can (15 oz)",    price: 1.29, base: "count", capacity: 1 },
   "green or brown lentils":   { unit: "bag (16 oz)",    price: 1.99, base: "oz",    capacity: 16 },
-  "lentils":                  { unit: "bag (16 oz)",    price: 1.99, base: "oz",    capacity: 16 },
+  "lentils":                  { unit: "bag (16 oz)",    price: 1.99, base: "oz",    capacity: 16,  calsPerPkg: 1600 }, // 352 kcal/100g dry × 453g
   "diced tomatoes":           { unit: "can (14.5 oz)",  price: 1.09, base: "count", capacity: 1 },
   "vegetable broth":          { unit: "carton (32 oz)", price: 2.49, base: "tbsp",  capacity: 64 },
   "chicken or vegetable broth":{ unit: "carton (32 oz)",price: 2.49, base: "tbsp",  capacity: 64 },

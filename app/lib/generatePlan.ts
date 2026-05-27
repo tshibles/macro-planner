@@ -261,7 +261,7 @@ export function generatePlan(
   const dislikedSet = new Set(dislikedIds);
 
   // Step 1: Build the weekly grocery cart from the budget allocation.
-  const cart = buildWeeklyCart(budget, stateMultiplier, diet);
+  const cart = buildWeeklyCart(budget, stateMultiplier, diet, calorieTarget ?? 2000, totalDays);
 
   // Step 2: Seed deterministically so the same inputs always produce the same plan,
   // but planSalt (generated fresh per session on the client) ensures two users
