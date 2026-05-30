@@ -1,6 +1,17 @@
 import { meals, Meal, DietaryFlag } from "@/app/data/meals";
 import { STATE_MULTIPLIERS } from "@/app/data/stateMultipliers";
-import { buildWeeklyCart, PREMIUM_INGREDIENT_CHECKS, CartItem } from "@/app/lib/groceryCart";
+import { normalizeKey } from "@/app/lib/normalizeIngredient";
+import { isPantryStaple, computePurchasable } from "@/app/data/purchasableUnits";
+
+export interface CartItem {
+  key: string;
+  displayName: string;
+  category: "protein" | "carb" | "produce";
+  packages: number;
+  purchaseLabel: string;
+  pricePerUnit: number;
+  totalCost: number;
+}
 
 export interface DayMeals {
   day: string;
@@ -59,8 +70,8 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
 }
 
 const EXCLUDED_FLAGS: Record<string, DietaryFlag[]> = {
-  vegetarian: ["meat", "fish"],
-  vegan:      ["meat", "dairy", "fish", "eggs"],
+  vegetarian:  ["meat", "fish"],
+  vegan:       ["meat", "dairy", "fish", "eggs"],
   gluten_free: ["gluten"],
   dairy_free:  ["dairy"],
   halal:       ["pork"],
@@ -96,6 +107,20 @@ function formatDate(dayOffset: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// ── Budget Tier ───────────────────────────────────────────────────────────────
+
+function determineBudgetTier(perPersonBudget: number): 1 | 2 | 3 {
+  if (perPersonBudget < 70) return 1;
+  if (perPersonBudget < 110) return 2;
+  return 3;
+}
+
+function categorizeIngredient(key: string): "protein" | "carb" | "produce" {
+  if (/chicken|turkey|beef|tuna|salmon|shrimp|egg|tofu|yogurt|cottage|cheese|ham|bacon|lentil|chickpea|bean|protein powder/.test(key)) return "protein";
+  if (/oat|rice|bread|pasta|tortilla|bagel|pita|quinoa|granola|potato|noodle/.test(key)) return "carb";
+  return "produce";
+}
+
 // ── Pool Builder ──────────────────────────────────────────────────────────────
 
 function buildPool(
@@ -103,22 +128,19 @@ function buildPool(
   diet: string,
   goal: string,
   rng: () => number,
-  cartKeys: Set<string>,
+  budgetTier: 1 | 2 | 3,
   dislikedIds: Set<string>,
   slotCalTarget?: number
 ): Meal[] {
   const eligible = meals.filter((m) => {
     if (m.type !== type) return false;
+    if (m.budgetTier > budgetTier) return false;
     if (!isAllowed(m, diet)) return false;
     if (dislikedIds.has(m.id)) return false;
-    for (const check of PREMIUM_INGREDIENT_CHECKS) {
-      const mealUsesIt = m.ingredients.some((ing) => check.pattern.test(ing.item));
-      if (mealUsesIt && !cartKeys.has(check.cartKey)) return false;
-    }
     return true;
   });
 
-  // Fallback relaxes premium-ingredient gating but keeps dislike filter.
+  // Fallback: relax budget-tier filter but keep diet + dislike filters
   const pool =
     eligible.length >= 3
       ? eligible
@@ -126,9 +148,6 @@ function buildPool(
           (m) => m.type === type && isAllowed(m, diet) && !dislikedIds.has(m.id)
         ).slice(0, 8);
 
-  // Sort by goal score; when a per-slot calorie target is given, weight calorie
-  // proximity heavily so high-calorie meals rise to the top of the pool when
-  // the user's target demands them.
   const sorted = [...pool].sort((a, b) => {
     const goalDiff = scoreMeal(b, goal) - scoreMeal(a, goal);
     if (slotCalTarget === undefined) return goalDiff;
@@ -194,9 +213,6 @@ function balanceDailyCalories(week: DayMeals[]): void {
 }
 
 // ── Day Meal Selector ─────────────────────────────────────────────────────────
-// Picks meals using goal scoring + calorie targeting.
-// When top candidates score similarly, picks randomly among the top 4 to ensure
-// two users with identical stats get different plans.
 
 function selectDayMeals(
   bPool: Meal[],
@@ -223,13 +239,11 @@ function selectDayMeals(
         : undefined;
 
     const scored = available.map((m) => {
-      // Weight calorie fit strongly so the daily target actually drives selection.
       const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 3.0 : 0;
       return { m, score: scoreMeal(m, goal) + calFit };
     });
     scored.sort((a, b) => b.score - a.score);
 
-    // Pick among top 2 — enough variety without drifting far from calorie target.
     const topN = Math.min(2, scored.length);
     const pick = Math.floor(rng() * topN);
     const best = scored[pick].m;
@@ -248,6 +262,46 @@ function selectDayMeals(
   return { breakfast, lunch, dinner, snack };
 }
 
+// ── Grocery List Builder ──────────────────────────────────────────────────────
+// Aggregates all ingredients from the week 1 meal template, normalizes names,
+// and computes purchasable quantities using PURCHASABLE_MAP + state multiplier.
+
+function buildGroceryFromMeals(
+  week1: DayMeals[],
+  stateMultiplier: number
+): WeeklyCartSummary {
+  const ingredientMap = new Map<string, { amounts: string[]; rawKey: string }>();
+
+  for (const day of week1) {
+    for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
+      for (const ing of meal.ingredients) {
+        const key = normalizeKey(ing.item);
+        if (isPantryStaple(key)) continue;
+        if (!ingredientMap.has(key)) {
+          ingredientMap.set(key, { amounts: [], rawKey: ing.item });
+        }
+        ingredientMap.get(key)!.amounts.push(ing.amount);
+      }
+    }
+  }
+
+  const items: CartItem[] = Array.from(ingredientMap.entries()).map(([key, { amounts, rawKey }]) => {
+    const result = computePurchasable(key, amounts, amounts.length, stateMultiplier);
+    return {
+      key,
+      displayName: rawKey.replace(/\b\w/g, (c: string) => c.toUpperCase()),
+      category: categorizeIngredient(key),
+      packages: result.qty,
+      purchaseLabel: result.label,
+      pricePerUnit: result.pricePerUnit,
+      totalCost: result.total,
+    };
+  });
+
+  const totalCost = +items.reduce((s, i) => s + i.totalCost, 0).toFixed(2);
+  return { items, totalCost };
+}
+
 // ── Main Export ───────────────────────────────────────────────────────────────
 
 export function generatePlan(
@@ -256,6 +310,7 @@ export function generatePlan(
   diet: string,
   totalDays: number,
   stateCode: string,
+  numberOfPeople: number = 1,
   calorieTarget?: number,
   dislikedIds: string[] = [],
   planSalt: number = 0
@@ -264,8 +319,9 @@ export function generatePlan(
   const numWeeks = Math.ceil(totalDays / 7);
   const dislikedSet = new Set(dislikedIds);
 
-  // Step 1: Build the weekly grocery cart from the budget allocation.
-  const cart = buildWeeklyCart(budget, stateMultiplier, diet, calorieTarget ?? 2000, totalDays);
+  // Step 1: Determine budget tier from per-person weekly budget.
+  const perPersonBudget = budget / Math.max(1, numberOfPeople);
+  const budgetTier = determineBudgetTier(perPersonBudget);
 
   // Step 2: Seed deterministically so the same inputs always produce the same plan,
   // but planSalt (generated fresh per session on the client) ensures two users
@@ -279,12 +335,7 @@ export function generatePlan(
   const seed = (Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex + planSalt) >>> 0;
   const rng = seededRng(seed);
 
-  // Step 3: Build meal pools filtered by cart ingredients and dietary rules.
-  // Per-meal cost ceilings are intentionally omitted — the weekly cart is the real
-  // budget controller. Cost-ceiling filters systematically exclude the highest-calorie
-  // meals (which tend to cost slightly more) and cannot be hit by the meal library anyway.
-  // Per-slot calorie targets (based on typical meal-size proportions) guide pool ordering
-  // so high-calorie meals surface at the top when the user's target demands them.
+  // Step 3: Build meal pools filtered by budget tier and dietary rules.
   const slotCalTargets = calorieTarget
     ? {
         breakfast: calorieTarget * 0.20,
@@ -293,10 +344,10 @@ export function generatePlan(
         snack:     calorieTarget * 0.15,
       }
     : undefined;
-  const bPool = buildPool("breakfast", diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.breakfast);
-  const lPool = buildPool("lunch",     diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.lunch);
-  const dPool = buildPool("dinner",    diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.dinner);
-  const sPool = buildPool("snack",     diet, goal, rng, cart.ingredientKeys, dislikedSet, slotCalTargets?.snack);
+  const bPool = buildPool("breakfast", diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.breakfast);
+  const lPool = buildPool("lunch",     diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.lunch);
+  const dPool = buildPool("dinner",    diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.dinner);
+  const sPool = buildPool("snack",     diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.snack);
 
   // Step 4: Assign 7 days of meals (the Week 1 template repeated for longer plans).
   const week1Days: DayMeals[] = [];
@@ -352,11 +403,11 @@ export function generatePlan(
     week1Days.reduce((s, d) => s + d.dailyProtein, 0) / week1Days.length
   );
 
-  const weeklyEstimatedCost = cart.totalCost;
+  // Step 7: Generate grocery list from the selected week 1 meals.
+  const weeklyCart = buildGroceryFromMeals(week1Days, stateMultiplier);
+  const weeklyEstimatedCost = weeklyCart.totalCost;
   const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
 
-  // The meal library tops out around 2,980 cal/day (700 breakfast + 860 lunch + 900 dinner + 520 snack).
-  // Show a message any time the plan falls more than 5% short of the user's target.
   const LIBRARY_MAX_DAILY = 2980;
   let budgetCapMessage: string | undefined;
   if (calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.95)) {
@@ -366,8 +417,7 @@ export function generatePlan(
         ` tops out near ${LIBRARY_MAX_DAILY.toLocaleString()} cal/day vs your` +
         ` ${calorieTarget.toLocaleString()} cal goal`
       : `Plan averages ${avgDailyCalories.toLocaleString()} cal/day toward your` +
-        ` ${calorieTarget.toLocaleString()} cal goal — increase your budget to unlock` +
-        ` more calorie-dense ingredients`;
+        ` ${calorieTarget.toLocaleString()} cal goal`;
   }
 
   return {
@@ -381,6 +431,6 @@ export function generatePlan(
     avgDailyProtein,
     calorieTarget,
     budgetCapMessage,
-    weeklyCart: { items: cart.items, totalCost: cart.totalCost },
+    weeklyCart,
   };
 }

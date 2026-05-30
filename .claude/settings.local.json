@@ -25,7 +25,8 @@
       "Bash(sort -t: -k2 -n)",
       "Bash(sort -t: -k2 -rn)",
       "Bash(xargs ls -la)",
-      "Bash(awk '{print $2}')"
+      "Bash(awk '{print $2}')",
+      "Bash(grep -n \"^  {$\\\\|\\\\\"id\\\\\":\\\\|\\\\\"type\\\\\":\\\\|budgetTier:\" /Users/tshibles/macro-planner/app/data/meals.ts)"
     ]
   }
 }

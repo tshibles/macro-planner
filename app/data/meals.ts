@@ -20,6 +20,7 @@ export interface Meal {
   instructions: string[];
   usdaQuery: string;
   portionMultiplier?: number;
+  budgetTier: 1 | 2 | 3;
 }
 
 // Core ingredient strategy: every meal is built around
@@ -58,6 +59,7 @@ export const meals: Meal[] = [
       "Toast bread, dust with garlic powder, and serve eggs alongside.",
     ],
     usdaQuery: "scrambled eggs whole wheat toast",
+    budgetTier: 1,
   },
   {
     id: "b2",
@@ -86,6 +88,7 @@ export const meals: Meal[] = [
       "Dollop peanut butter on top and drizzle with honey.",
     ],
     usdaQuery: "oatmeal peanut butter banana",
+    budgetTier: 2,
   },
   {
     id: "b3",
@@ -112,6 +115,7 @@ export const meals: Meal[] = [
       "Drizzle with honey and serve.",
     ],
     usdaQuery: "greek yogurt banana oats bowl",
+    budgetTier: 2,
   },
   {
     id: "b4",
@@ -141,6 +145,7 @@ export const meals: Meal[] = [
       "Pour eggs over vegetables. Cook until edges set, fold in half, and serve.",
     ],
     usdaQuery: "egg omelette spinach bell pepper",
+    budgetTier: 1,
   },
   {
     id: "b5",
@@ -169,6 +174,7 @@ export const meals: Meal[] = [
       "Top with banana slices, peanut butter, and honey.",
     ],
     usdaQuery: "overnight oats banana peanut butter",
+    budgetTier: 2,
   },
   {
     id: "b6",
@@ -198,6 +204,7 @@ export const meals: Meal[] = [
       "Whisk eggs, pour over vegetables, and scramble gently until just set.",
     ],
     usdaQuery: "scrambled eggs spinach tomato",
+    budgetTier: 1,
   },
   {
     id: "b7",
@@ -227,6 +234,7 @@ export const meals: Meal[] = [
       "Top with the fried egg and season with pepper.",
     ],
     usdaQuery: "savory oatmeal egg spinach",
+    budgetTier: 1,
   },
   {
     id: "b8",
@@ -252,6 +260,7 @@ export const meals: Meal[] = [
       "Drizzle with honey and serve.",
     ],
     usdaQuery: "peanut butter banana toast whole wheat",
+    budgetTier: 2,
   },
   {
     id: "b9",
@@ -282,6 +291,7 @@ export const meals: Meal[] = [
       "Serve immediately with a side of whole wheat toast if desired.",
     ],
     usdaQuery: "scrambled eggs peppers onion Mexican style",
+    budgetTier: 1,
   },
   {
     id: "b10",
@@ -308,6 +318,7 @@ export const meals: Meal[] = [
       "Drizzle honey over everything and serve.",
     ],
     usdaQuery: "greek yogurt oats honey",
+    budgetTier: 2,
   },
   {
     id: "b11",
@@ -336,6 +347,7 @@ export const meals: Meal[] = [
       "Cook on a greased skillet over medium heat, 2-3 min per side. Makes ~4 pancakes.",
     ],
     usdaQuery: "banana oat pancakes",
+    budgetTier: 1,
   },
   {
     id: "b12",
@@ -365,6 +377,7 @@ export const meals: Meal[] = [
       "Season with oregano, basil, red pepper flakes, salt, and pepper.",
     ],
     usdaQuery: "egg tomato toast spinach",
+    budgetTier: 1,
   },
   {
     id: "b13",
@@ -392,6 +405,7 @@ export const meals: Meal[] = [
       "Drizzle with honey and serve immediately.",
     ],
     usdaQuery: "greek yogurt smoothie bowl banana",
+    budgetTier: 2,
   },
   {
     id: "b14",
@@ -420,6 +434,7 @@ export const meals: Meal[] = [
       "Top with fresh spinach, halved jammy eggs, and a pinch of oregano.",
     ],
     usdaQuery: "soft boiled eggs toast",
+    budgetTier: 1,
   },
   {
     id: "b15",
@@ -447,6 +462,7 @@ export const meals: Meal[] = [
       "Drizzle with honey and serve warm.",
     ],
     usdaQuery: "oatmeal banana honey",
+    budgetTier: 1,
   },
   {
     id: "b16",
@@ -475,6 +491,7 @@ export const meals: Meal[] = [
       "Scramble gently until just set. Serve immediately.",
     ],
     usdaQuery: "scrambled eggs bell pepper onion",
+    budgetTier: 1,
   },
   {
     id: "b17",
@@ -501,6 +518,7 @@ export const meals: Meal[] = [
       "Drizzle with honey and serve.",
     ],
     usdaQuery: "greek yogurt peanut butter banana bowl",
+    budgetTier: 2,
   },
   {
     id: "b18",
@@ -530,6 +548,7 @@ export const meals: Meal[] = [
       "Pour in egg whites and scramble gently until fully set. Season and serve.",
     ],
     usdaQuery: "egg white scramble spinach",
+    budgetTier: 1,
   },
   {
     id: "b19",
@@ -559,6 +578,7 @@ export const meals: Meal[] = [
       "Top with a soft-boiled or fried egg. Season with black pepper.",
     ],
     usdaQuery: "savory oatmeal spinach egg soy",
+    budgetTier: 1,
   },
   {
     id: "b20",
@@ -586,6 +606,7 @@ export const meals: Meal[] = [
       "Top with banana slices and drizzle with honey.",
     ],
     usdaQuery: "no cook oats banana yogurt bowl",
+    budgetTier: 2,
   },
 
   {
@@ -613,6 +634,7 @@ export const meals: Meal[] = [
       "Add peanut butter and drizzle with honey.",
     ],
     usdaQuery: "oatmeal peanut butter banana large portion",
+    budgetTier: 2,
   },
   {
     id: "b22",
@@ -639,6 +661,7 @@ export const meals: Meal[] = [
       "Serve scrambled eggs alongside the oatmeal.",
     ],
     usdaQuery: "scrambled eggs oatmeal spinach high protein",
+    budgetTier: 1,
   },
 
   // ─── LUNCHES (20) ────────────────────────────────────────────────────────
@@ -670,6 +693,7 @@ export const meals: Meal[] = [
       "Serve chicken and broccoli over rice, drizzled with glaze.",
     ],
     usdaQuery: "teriyaki chicken rice bowl broccoli",
+    budgetTier: 1,
   },
   {
     id: "l2",
@@ -701,6 +725,7 @@ export const meals: Meal[] = [
       "Serve turkey mixture over brown rice.",
     ],
     usdaQuery: "ground turkey Mexican rice bowl",
+    budgetTier: 1,
   },
   {
     id: "l3",
@@ -731,6 +756,7 @@ export const meals: Meal[] = [
       "Toss pasta with vegetables, pasta water, and sliced chicken.",
     ],
     usdaQuery: "chicken pasta spinach tomato Mediterranean",
+    budgetTier: 1,
   },
   {
     id: "l4",
@@ -761,6 +787,7 @@ export const meals: Meal[] = [
       "Pile tuna mixture on top, close sandwich, cut diagonally, and serve.",
     ],
     usdaQuery: "tuna salad sandwich whole wheat",
+    budgetTier: 1,
   },
   {
     id: "l5",
@@ -791,6 +818,7 @@ export const meals: Meal[] = [
       "Stir in spinach until wilted. Toss with pasta and serve.",
     ],
     usdaQuery: "ground turkey pasta tomato Italian",
+    budgetTier: 1,
   },
   {
     id: "l6",
@@ -821,6 +849,7 @@ export const meals: Meal[] = [
       "Serve over brown rice.",
     ],
     usdaQuery: "chicken stir fry broccoli rice soy sauce",
+    budgetTier: 1,
   },
   {
     id: "l7",
@@ -850,6 +879,7 @@ export const meals: Meal[] = [
       "Top rice with seasoned tuna and sliced onion. Toss and serve.",
     ],
     usdaQuery: "tuna rice bowl spinach",
+    budgetTier: 1,
   },
   {
     id: "l8",
@@ -881,6 +911,7 @@ export const meals: Meal[] = [
       "Bake 25-28 minutes until peppers are tender and slightly charred on top.",
     ],
     usdaQuery: "stuffed bell peppers ground turkey rice",
+    budgetTier: 1,
   },
   {
     id: "l9",
@@ -910,6 +941,7 @@ export const meals: Meal[] = [
       "Add spinach, soy sauce, and red pepper flakes; toss until wilted. Combine with egg.",
     ],
     usdaQuery: "egg fried rice spinach",
+    budgetTier: 1,
   },
   {
     id: "l10",
@@ -941,6 +973,7 @@ export const meals: Meal[] = [
       "Fold in tuna gently and serve warm or chilled.",
     ],
     usdaQuery: "tuna pasta salad vegetables",
+    budgetTier: 1,
   },
   {
     id: "l11",
@@ -972,6 +1005,7 @@ export const meals: Meal[] = [
       "Serve chicken, peppers, onion, and fresh tomato over rice.",
     ],
     usdaQuery: "chicken fajita rice bowl peppers onion",
+    budgetTier: 1,
   },
   {
     id: "l12",
@@ -1003,6 +1037,7 @@ export const meals: Meal[] = [
       "Add tomato, smoked paprika, cumin, garlic powder, and cayenne. Toss and cook 2 more minutes.",
     ],
     usdaQuery: "ground turkey potato skillet hash",
+    budgetTier: 1,
   },
   {
     id: "l13",
@@ -1033,6 +1068,7 @@ export const meals: Meal[] = [
       "Serve open-faced.",
     ],
     usdaQuery: "tuna melt toast open face",
+    budgetTier: 1,
   },
   {
     id: "l14",
@@ -1064,6 +1100,7 @@ export const meals: Meal[] = [
       "Drizzle with extra olive oil.",
     ],
     usdaQuery: "Greek chicken rice bowl spinach tomato",
+    budgetTier: 1,
   },
   {
     id: "l15",
@@ -1094,6 +1131,7 @@ export const meals: Meal[] = [
       "Serve over brown rice.",
     ],
     usdaQuery: "ground turkey broccoli rice bowl",
+    budgetTier: 1,
   },
   {
     id: "l16",
@@ -1124,6 +1162,7 @@ export const meals: Meal[] = [
       "Make 2 wells; crack an egg into each. Cover and cook 4-5 minutes to desired doneness.",
     ],
     usdaQuery: "potato egg hash bell pepper",
+    budgetTier: 1,
   },
   {
     id: "l17",
@@ -1154,6 +1193,7 @@ export const meals: Meal[] = [
       "Toss pasta with vegetables, pasta water, and sliced chicken.",
     ],
     usdaQuery: "chicken spinach pasta garlic tomato",
+    budgetTier: 1,
   },
   {
     id: "l18",
@@ -1183,6 +1223,7 @@ export const meals: Meal[] = [
       "Top rice with broccoli, bell pepper strips, and seasoned tuna.",
     ],
     usdaQuery: "tuna broccoli rice bowl",
+    budgetTier: 1,
   },
   {
     id: "l19",
@@ -1214,6 +1255,7 @@ export const meals: Meal[] = [
       "Top with fresh diced tomato and baby spinach, drizzled with a little olive oil.",
     ],
     usdaQuery: "ground turkey Greek rice bowl tomato spinach",
+    budgetTier: 1,
   },
   {
     id: "l20",
@@ -1245,6 +1287,7 @@ export const meals: Meal[] = [
       "Add spinach and tomato; wilt 1 minute. Push to side, scramble eggs in the center, then toss together.",
     ],
     usdaQuery: "eggs potato bowl spinach hash",
+    budgetTier: 1,
   },
 
   {
@@ -1273,6 +1316,7 @@ export const meals: Meal[] = [
       "Serve chicken and broccoli over rice, drizzled with glaze.",
     ],
     usdaQuery: "chicken rice bowl double portion broccoli teriyaki",
+    budgetTier: 1,
   },
   {
     id: "l22",
@@ -1301,6 +1345,7 @@ export const meals: Meal[] = [
       "Stir in spinach until wilted. Toss with pasta and serve.",
     ],
     usdaQuery: "ground turkey pasta hearty bowl tomato Italian",
+    budgetTier: 1,
   },
 
   // ─── DINNERS (20) ────────────────────────────────────────────────────────
@@ -1333,6 +1378,7 @@ export const meals: Meal[] = [
       "Slice chicken and serve over brown rice with broccoli.",
     ],
     usdaQuery: "baked chicken breast brown rice broccoli",
+    budgetTier: 1,
   },
   {
     id: "d2",
@@ -1364,6 +1410,7 @@ export const meals: Meal[] = [
       "Toss pasta with meat sauce and serve.",
     ],
     usdaQuery: "turkey Bolognese pasta tomato",
+    budgetTier: 1,
   },
   {
     id: "d3",
@@ -1394,6 +1441,7 @@ export const meals: Meal[] = [
       "Roast 20-22 more minutes until chicken reaches 165°F and potatoes are golden.",
     ],
     usdaQuery: "sheet pan chicken potatoes broccoli roasted",
+    budgetTier: 1,
   },
   {
     id: "d4",
@@ -1425,6 +1473,7 @@ export const meals: Meal[] = [
       "Serve over brown rice.",
     ],
     usdaQuery: "chicken stir fry broccoli rice Asian",
+    budgetTier: 1,
   },
   {
     id: "d5",
@@ -1457,6 +1506,7 @@ export const meals: Meal[] = [
       "Serve over brown rice.",
     ],
     usdaQuery: "Mexican turkey rice bowl peppers tomato",
+    budgetTier: 1,
   },
   {
     id: "d6",
@@ -1488,6 +1538,7 @@ export const meals: Meal[] = [
       "Slice chicken and serve over potatoes with fresh spinach and diced tomato.",
     ],
     usdaQuery: "Mediterranean chicken potatoes spinach tomato",
+    budgetTier: 1,
   },
   {
     id: "d7",
@@ -1520,6 +1571,7 @@ export const meals: Meal[] = [
       "Bake 28-30 minutes until peppers are tender and tops are slightly charred.",
     ],
     usdaQuery: "stuffed bell peppers turkey rice tomato",
+    budgetTier: 1,
   },
   {
     id: "d8",
@@ -1552,6 +1604,7 @@ export const meals: Meal[] = [
       "Toss pasta with vegetables, pasta water, and sliced chicken.",
     ],
     usdaQuery: "chicken pasta primavera vegetables",
+    budgetTier: 1,
   },
   {
     id: "d9",
@@ -1581,6 +1634,7 @@ export const meals: Meal[] = [
       "Steam broccoli. Serve chicken over rice with broccoli, drizzled with pan sauce.",
     ],
     usdaQuery: "teriyaki chicken bowl rice broccoli",
+    budgetTier: 1,
   },
   {
     id: "d10",
@@ -1612,6 +1666,7 @@ export const meals: Meal[] = [
       "Add tomato, smoked paprika, cumin, garlic powder, and cayenne; toss together and cook 2 more minutes.",
     ],
     usdaQuery: "ground turkey potato skillet dinner",
+    budgetTier: 1,
   },
   {
     id: "d11",
@@ -1643,6 +1698,7 @@ export const meals: Meal[] = [
       "Toss pasta with vegetables, chicken, and a splash of pasta water.",
     ],
     usdaQuery: "chicken spinach pasta garlic",
+    budgetTier: 1,
   },
   {
     id: "d12",
@@ -1674,6 +1730,7 @@ export const meals: Meal[] = [
       "Add bell pepper, broccoli, soy sauce, honey, and red pepper flakes; stir-fry 2-3 minutes. Serve over brown rice.",
     ],
     usdaQuery: "ground turkey broccoli bowl Asian soy sauce",
+    budgetTier: 1,
   },
   {
     id: "d13",
@@ -1706,6 +1763,7 @@ export const meals: Meal[] = [
       "Serve chicken, peppers, onion, and fresh tomato over rice.",
     ],
     usdaQuery: "chicken fajita bowl rice dinner",
+    budgetTier: 1,
   },
   {
     id: "d14",
@@ -1738,6 +1796,7 @@ export const meals: Meal[] = [
       "Split potato open, fluff the interior, and load with chipotle turkey, broccoli, and fresh tomato.",
     ],
     usdaQuery: "loaded baked potato ground turkey broccoli",
+    budgetTier: 1,
   },
   {
     id: "d15",
@@ -1768,6 +1827,7 @@ export const meals: Meal[] = [
       "Toss pasta with vegetables, sliced chicken, and pasta water.",
     ],
     usdaQuery: "Italian chicken pasta tomato spinach",
+    budgetTier: 1,
   },
   {
     id: "d16",
@@ -1799,6 +1859,7 @@ export const meals: Meal[] = [
       "Cook pasta; drain. Serve pasta topped with meatballs and Sunday gravy.",
     ],
     usdaQuery: "turkey meatballs pasta tomato sauce",
+    budgetTier: 1,
   },
   {
     id: "d17",
@@ -1830,6 +1891,7 @@ export const meals: Meal[] = [
       "Whisk eggs with red pepper flakes, salt, and pepper; pour over vegetables. Cook on stovetop 2 minutes, then bake 12-15 minutes until set.",
     ],
     usdaQuery: "egg frittata potato spinach",
+    budgetTier: 1,
   },
   {
     id: "d18",
@@ -1861,6 +1923,7 @@ export const meals: Meal[] = [
       "Serve sliced chicken over rice with the tomato-spinach mixture.",
     ],
     usdaQuery: "smoky chicken rice tomato spinach",
+    budgetTier: 1,
   },
   {
     id: "d19",
@@ -1891,6 +1954,7 @@ export const meals: Meal[] = [
       "Serve over brown rice.",
     ],
     usdaQuery: "turkey broccoli rice bowl soy sauce",
+    budgetTier: 1,
   },
   {
     id: "d20",
@@ -1924,6 +1988,7 @@ export const meals: Meal[] = [
       "Roast 20-22 more minutes until chicken is cooked through and vegetables are golden and fragrant.",
     ],
     usdaQuery: "sheet pan chicken vegetables roasted potato",
+    budgetTier: 1,
   },
 
   {
@@ -1952,6 +2017,7 @@ export const meals: Meal[] = [
       "Slice chicken and serve over brown rice with roasted broccoli.",
     ],
     usdaQuery: "baked chicken breast brown rice broccoli large portion bulking",
+    budgetTier: 1,
   },
   {
     id: "d22",
@@ -1981,6 +2047,7 @@ export const meals: Meal[] = [
       "Toss pasta with meat sauce and serve in a large bowl.",
     ],
     usdaQuery: "turkey bolognese pasta large portion tomato",
+    budgetTier: 1,
   },
 
   // ─── SNACKS (20) ─────────────────────────────────────────────────────────
@@ -2004,6 +2071,7 @@ export const meals: Meal[] = [
       "Enjoy as a quick protein-rich snack.",
     ],
     usdaQuery: "greek yogurt banana snack",
+    budgetTier: 2,
   },
   {
     id: "s2",
@@ -2025,6 +2093,7 @@ export const meals: Meal[] = [
       "Transfer to ice water 5 minutes. Peel, halve, and season with salt.",
     ],
     usdaQuery: "hard boiled eggs",
+    budgetTier: 1,
   },
   {
     id: "s3",
@@ -2048,6 +2117,7 @@ export const meals: Meal[] = [
       "Top with banana slices and a drizzle of honey.",
     ],
     usdaQuery: "peanut butter banana toast snack",
+    budgetTier: 2,
   },
   {
     id: "s4",
@@ -2072,6 +2142,7 @@ export const meals: Meal[] = [
       "Top with tuna mixture and tomato slices. Serve open-faced.",
     ],
     usdaQuery: "tuna toast snack",
+    budgetTier: 1,
   },
   {
     id: "s5",
@@ -2093,6 +2164,7 @@ export const meals: Meal[] = [
       "Stir slightly and enjoy.",
     ],
     usdaQuery: "greek yogurt honey snack",
+    budgetTier: 2,
   },
   {
     id: "s6",
@@ -2117,6 +2189,7 @@ export const meals: Meal[] = [
       "Refrigerate 20 minutes to firm up, then serve.",
     ],
     usdaQuery: "oat energy bites peanut butter no bake",
+    budgetTier: 2,
   },
   {
     id: "s7",
@@ -2140,6 +2213,7 @@ export const meals: Meal[] = [
       "Scramble gently until just set. Serve in a bowl.",
     ],
     usdaQuery: "scrambled eggs spinach snack",
+    budgetTier: 1,
   },
   {
     id: "s8",
@@ -2160,6 +2234,7 @@ export const meals: Meal[] = [
       "Serve alongside peanut butter for dipping.",
     ],
     usdaQuery: "banana peanut butter snack",
+    budgetTier: 2,
   },
   {
     id: "s9",
@@ -2183,6 +2258,7 @@ export const meals: Meal[] = [
       "Serve immediately in a glass.",
     ],
     usdaQuery: "greek yogurt banana smoothie",
+    budgetTier: 2,
   },
   {
     id: "s10",
@@ -2206,6 +2282,7 @@ export const meals: Meal[] = [
       "Spoon tuna into each tomato half and serve.",
     ],
     usdaQuery: "tuna stuffed tomato snack",
+    budgetTier: 1,
   },
   {
     id: "s11",
@@ -2229,6 +2306,7 @@ export const meals: Meal[] = [
       "Let cool slightly before eating.",
     ],
     usdaQuery: "peanut butter oatmeal snack",
+    budgetTier: 2,
   },
   {
     id: "s12",
@@ -2253,6 +2331,7 @@ export const meals: Meal[] = [
       "Scramble gently until just set. Serve immediately.",
     ],
     usdaQuery: "scrambled eggs bell pepper snack",
+    budgetTier: 1,
   },
   {
     id: "s13",
@@ -2276,6 +2355,7 @@ export const meals: Meal[] = [
       "Drizzle honey over everything and serve.",
     ],
     usdaQuery: "greek yogurt oats banana bowl snack",
+    budgetTier: 2,
   },
   {
     id: "s14",
@@ -2299,6 +2379,7 @@ export const meals: Meal[] = [
       "Top with banana and drizzle with honey.",
     ],
     usdaQuery: "oatmeal banana snack bowl",
+    budgetTier: 1,
   },
   {
     id: "s15",
@@ -2322,6 +2403,7 @@ export const meals: Meal[] = [
       "Serve tuna in a small bowl alongside bell pepper strips for dipping.",
     ],
     usdaQuery: "tuna bell pepper snack dip",
+    budgetTier: 1,
   },
   {
     id: "s16",
@@ -2345,6 +2427,7 @@ export const meals: Meal[] = [
       "Add more water if too thick. Serve immediately.",
     ],
     usdaQuery: "green smoothie banana spinach yogurt",
+    budgetTier: 2,
   },
   {
     id: "s17",
@@ -2367,6 +2450,7 @@ export const meals: Meal[] = [
       "Place banana half at one edge and roll the bread tightly around it. Slice into rounds.",
     ],
     usdaQuery: "peanut butter banana roll up snack",
+    budgetTier: 2,
   },
   {
     id: "s18",
@@ -2390,6 +2474,7 @@ export const meals: Meal[] = [
       "Drizzle with honey and serve.",
     ],
     usdaQuery: "greek yogurt peanut butter banana snack",
+    budgetTier: 2,
   },
   {
     id: "s19",
@@ -2413,6 +2498,7 @@ export const meals: Meal[] = [
       "Whisk eggs, pour over tomato, and scramble gently until just set. Season and serve.",
     ],
     usdaQuery: "scrambled eggs tomato bites snack",
+    budgetTier: 1,
   },
   {
     id: "s21",
@@ -2437,6 +2523,7 @@ export const meals: Meal[] = [
       "Stir together slightly and enjoy.",
     ],
     usdaQuery: "greek yogurt banana peanut butter high calorie snack",
+    budgetTier: 2,
   },
   {
     id: "s22",
@@ -2463,6 +2550,7 @@ export const meals: Meal[] = [
       "Add peanut butter and drizzle with honey.",
     ],
     usdaQuery: "oatmeal peanut butter banana power bowl snack",
+    budgetTier: 2,
   },
   {
     id: "s20",
@@ -2488,6 +2576,7 @@ export const meals: Meal[] = [
       "Pile egg scramble on toast and serve.",
     ],
     usdaQuery: "eggs spinach toast snack",
+    budgetTier: 1,
   },
 
   // ─── ULTRA-BUDGET HIGH-CALORIE MEALS ─────────────────────────────────────
@@ -2519,6 +2608,7 @@ export const meals: Meal[] = [
       "Add peanut butter and stir into the hot oatmeal.",
     ],
     usdaQuery: "oatmeal peanut butter banana budget",
+    budgetTier: 2,
   },
   {
     id: "b24",
@@ -2546,6 +2636,7 @@ export const meals: Meal[] = [
       "Season with salt and pepper and serve straight from the pan.",
     ],
     usdaQuery: "egg potato hash skillet budget",
+    budgetTier: 1,
   },
   {
     id: "l23",
@@ -2573,6 +2664,7 @@ export const meals: Meal[] = [
       "Toss pasta with the turkey sauce and serve.",
     ],
     usdaQuery: "pasta ground turkey budget tomato",
+    budgetTier: 1,
   },
   {
     id: "d23",
@@ -2601,6 +2693,7 @@ export const meals: Meal[] = [
       "Serve turkey over brown rice. Season with salt and pepper.",
     ],
     usdaQuery: "ground turkey rice budget dinner",
+    budgetTier: 1,
   },
   {
     id: "s23",
@@ -2624,5 +2717,566 @@ export const meals: Meal[] = [
       "Press slices together and cut diagonally.",
     ],
     usdaQuery: "peanut butter jelly sandwich whole wheat budget",
+    budgetTier: 2,
+  },
+
+  // ─── TIER 3 PREMIUM MEALS ─────────────────────────────────────────────────
+  // Unlocked at $110+/week per person. Built around salmon, shrimp, steak,
+  // tempeh, quinoa, and avocado across all four meal slots.
+
+  // ─── BREAKFASTS (4) ───────────────────────────────────────────────────────
+  {
+    id: "b25",
+    name: "Pacific Northwest Smoked Salmon & Avocado Scramble",
+    calories: 520,
+    protein: 38,
+    carbs: 22,
+    fat: 32,
+    cost: 4.20,
+    type: "breakfast",
+    contains: ["fish", "eggs", "gluten"],
+    ingredients: [
+      { item: "Smoked salmon", amount: "3 oz" },
+      { item: "Large eggs", amount: "3" },
+      { item: "Avocado", amount: "1/2, sliced" },
+      { item: "Whole wheat bread", amount: "1 slice, toasted" },
+      { item: "Red onion", amount: "2 tbsp, finely diced" },
+      { item: "Capers", amount: "1 tbsp" },
+      { item: "Lemon juice", amount: "1 tsp" },
+      { item: "Olive oil", amount: "1 tsp" },
+      { item: "Black pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Heat oil in a non-stick skillet over medium-low. Whisk eggs with a pinch of pepper.",
+      "Pour eggs into pan and gently scramble until just set, about 2 minutes. Remove from heat.",
+      "Toast bread and lay sliced avocado on top; squeeze lemon over avocado.",
+      "Plate the scrambled eggs alongside the avocado toast. Top with smoked salmon, diced red onion, and capers.",
+    ],
+    usdaQuery: "smoked salmon scrambled eggs avocado toast",
+    budgetTier: 3,
+  },
+  {
+    id: "b26",
+    name: "Seoul Morning Teriyaki Tempeh & Quinoa Bowl",
+    calories: 520,
+    protein: 32,
+    carbs: 54,
+    fat: 22,
+    cost: 3.80,
+    type: "breakfast",
+    contains: [],
+    ingredients: [
+      { item: "Tempeh", amount: "5 oz, cubed" },
+      { item: "Cooked quinoa", amount: "3/4 cup" },
+      { item: "Soy sauce", amount: "1 tbsp" },
+      { item: "Honey", amount: "1 tsp" },
+      { item: "Sesame oil", amount: "1 tsp" },
+      { item: "Green onions", amount: "2 tbsp, sliced" },
+      { item: "Sesame seeds", amount: "1 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+    ],
+    instructions: [
+      "Whisk together soy sauce, honey, garlic powder, and red pepper flakes to make a quick teriyaki glaze.",
+      "Heat sesame oil in a non-stick skillet over medium-high. Add tempeh cubes and sear 3–4 minutes until golden on two sides.",
+      "Pour the glaze over tempeh; toss and cook 1 more minute until caramelized.",
+      "Serve tempeh over warm quinoa; garnish with green onions and sesame seeds.",
+    ],
+    usdaQuery: "tempeh quinoa teriyaki bowl sesame",
+    budgetTier: 3,
+  },
+  {
+    id: "b27",
+    name: "Baja Sunrise Shrimp & Avocado Corn Tortilla Scramble",
+    calories: 490,
+    protein: 38,
+    carbs: 26,
+    fat: 22,
+    cost: 4.40,
+    type: "breakfast",
+    contains: ["fish", "eggs"],
+    ingredients: [
+      { item: "Shrimp", amount: "4 oz, peeled and deveined" },
+      { item: "Large eggs", amount: "2" },
+      { item: "Avocado", amount: "1/2, sliced" },
+      { item: "Corn tortillas", amount: "2 small" },
+      { item: "Lime juice", amount: "1 tbsp" },
+      { item: "Cilantro", amount: "1 tbsp, chopped" },
+      { item: "Olive oil", amount: "1 tsp" },
+      { item: "Cumin", amount: "1/4 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Season shrimp with cumin, garlic powder, salt, and pepper.",
+      "Heat oil in a skillet over medium-high. Cook shrimp 2 minutes per side until pink and curled. Remove.",
+      "In the same pan over medium-low, scramble whisked eggs until just set.",
+      "Warm tortillas, fill with eggs and shrimp, top with avocado, drizzle with lime juice, and scatter cilantro.",
+    ],
+    usdaQuery: "shrimp scrambled eggs avocado corn tortilla breakfast",
+    budgetTier: 3,
+  },
+  {
+    id: "b28",
+    name: "Aegean Salmon & Spinach Frittata",
+    calories: 470,
+    protein: 44,
+    carbs: 8,
+    fat: 28,
+    cost: 4.80,
+    type: "breakfast",
+    contains: ["fish", "eggs"],
+    ingredients: [
+      { item: "Salmon fillet", amount: "4 oz, flaked" },
+      { item: "Large eggs", amount: "3" },
+      { item: "Baby spinach", amount: "2 cups" },
+      { item: "Tomato", amount: "1/2 medium, diced" },
+      { item: "Garlic", amount: "1 clove, minced" },
+      { item: "Olive oil", amount: "1.5 tsp" },
+      { item: "Oregano", amount: "1/2 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Preheat broiler. Whisk eggs with oregano, red pepper flakes, salt, and pepper.",
+      "Heat oil in a small oven-safe skillet over medium. Sauté garlic 30 seconds, add spinach and tomato; cook 2 minutes until wilted.",
+      "Nestle flaked salmon into the vegetables, pour egg mixture over everything.",
+      "Cook 2 minutes until edges set, then broil 2–3 minutes until golden and puffed. Slide onto a plate and serve.",
+    ],
+    usdaQuery: "salmon spinach frittata Mediterranean eggs",
+    budgetTier: 3,
+  },
+
+  // ─── LUNCHES (5) ──────────────────────────────────────────────────────────
+  {
+    id: "l24",
+    name: "Chipotle-Lime Seared Shrimp & Avocado Quinoa Bowl",
+    calories: 600,
+    protein: 46,
+    carbs: 56,
+    fat: 20,
+    cost: 6.20,
+    type: "lunch",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Shrimp", amount: "6 oz, peeled and deveined" },
+      { item: "Cooked quinoa", amount: "1 cup" },
+      { item: "Avocado", amount: "1/2, sliced" },
+      { item: "Black beans", amount: "1/4 cup, rinsed" },
+      { item: "Lime juice", amount: "1 tbsp" },
+      { item: "Cilantro", amount: "1 tbsp, chopped" },
+      { item: "Olive oil", amount: "1 tsp" },
+      { item: "Cumin", amount: "1/2 tsp" },
+      { item: "Chili powder", amount: "1/4 tsp" },
+      { item: "Smoked paprika", amount: "1/4 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Toss shrimp with cumin, chili powder, smoked paprika, garlic powder, salt, and pepper.",
+      "Heat oil in a skillet over high heat. Sear shrimp 2 minutes per side until charred and cooked through.",
+      "Build the bowl: quinoa base, black beans, sliced avocado, and seared shrimp.",
+      "Drizzle lime juice over everything and scatter cilantro on top.",
+    ],
+    usdaQuery: "seared shrimp avocado quinoa bowl chipotle lime Mexican",
+    budgetTier: 3,
+  },
+  {
+    id: "l25",
+    name: "Osaka Soy-Ginger Glazed Salmon Rice Bowl",
+    calories: 570,
+    protein: 48,
+    carbs: 54,
+    fat: 18,
+    cost: 5.80,
+    type: "lunch",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Salmon fillet", amount: "6 oz" },
+      { item: "Cooked brown rice", amount: "1 cup" },
+      { item: "Broccoli florets", amount: "1 cup" },
+      { item: "Soy sauce", amount: "2 tbsp" },
+      { item: "Honey", amount: "1 tsp" },
+      { item: "Fresh ginger", amount: "1/4 tsp, grated" },
+      { item: "Sesame oil", amount: "1 tsp" },
+      { item: "Garlic", amount: "1 clove, minced" },
+      { item: "Sesame seeds", amount: "1 tsp" },
+    ],
+    instructions: [
+      "Whisk soy sauce, honey, garlic, and ginger into a glaze. Reserve 1 tbsp for drizzling.",
+      "Brush salmon with half the glaze and cook in sesame oil over medium-high 3–4 minutes per side until caramelized.",
+      "Steam or microwave broccoli 3 minutes until tender-crisp.",
+      "Serve salmon over rice and broccoli; drizzle with reserved glaze and sprinkle sesame seeds.",
+    ],
+    usdaQuery: "glazed salmon rice bowl broccoli soy ginger Asian",
+    budgetTier: 3,
+  },
+  {
+    id: "l26",
+    name: "Florentine Steak & Quinoa Power Salad",
+    calories: 650,
+    protein: 46,
+    carbs: 46,
+    fat: 30,
+    cost: 8.00,
+    type: "lunch",
+    contains: ["meat"],
+    ingredients: [
+      { item: "Sirloin steak", amount: "5 oz" },
+      { item: "Cooked quinoa", amount: "1 cup" },
+      { item: "Baby spinach", amount: "2 cups" },
+      { item: "Avocado", amount: "1/4, sliced" },
+      { item: "Tomato", amount: "1/2 medium, chopped" },
+      { item: "Olive oil", amount: "1 tbsp" },
+      { item: "Lemon juice", amount: "1 tbsp" },
+      { item: "Garlic", amount: "1 clove, minced" },
+      { item: "Italian seasoning", amount: "1/4 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Season steak with salt, pepper, garlic, and Italian seasoning. Sear in 1 tsp oil over high heat 3 minutes per side for medium-rare.",
+      "Rest steak 5 minutes, then slice thin against the grain.",
+      "Whisk remaining olive oil with lemon juice, red pepper flakes, salt, and pepper to make the dressing.",
+      "Toss spinach, quinoa, tomato, and avocado with dressing; top with sliced steak.",
+    ],
+    usdaQuery: "sirloin steak quinoa spinach salad Italian",
+    budgetTier: 3,
+  },
+  {
+    id: "l27",
+    name: "Athenian Herb-Grilled Shrimp & Quinoa Bowl",
+    calories: 580,
+    protein: 50,
+    carbs: 44,
+    fat: 22,
+    cost: 6.00,
+    type: "lunch",
+    contains: ["fish", "dairy"],
+    ingredients: [
+      { item: "Shrimp", amount: "6 oz, peeled and deveined" },
+      { item: "Cooked quinoa", amount: "1 cup" },
+      { item: "Baby spinach", amount: "1 cup" },
+      { item: "Tomato", amount: "1/2 medium, chopped" },
+      { item: "Feta cheese", amount: "2 tbsp, crumbled" },
+      { item: "Olive oil", amount: "1 tbsp" },
+      { item: "Lemon juice", amount: "1 tbsp" },
+      { item: "Oregano", amount: "1/2 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Toss shrimp with oregano, garlic powder, red pepper flakes, salt, and pepper.",
+      "Heat half the olive oil over medium-high; cook shrimp 2 minutes per side until pink.",
+      "Whisk remaining olive oil with lemon juice for the dressing.",
+      "Build the bowl: quinoa, spinach, tomato, shrimp, and feta. Drizzle with lemon dressing.",
+    ],
+    usdaQuery: "grilled shrimp quinoa feta spinach Greek Mediterranean",
+    budgetTier: 3,
+  },
+  {
+    id: "l28",
+    name: "Sichuan-Glazed Tempeh & Broccoli Rice Bowl",
+    calories: 580,
+    protein: 34,
+    carbs: 70,
+    fat: 22,
+    cost: 4.20,
+    type: "lunch",
+    contains: [],
+    ingredients: [
+      { item: "Tempeh", amount: "5 oz, sliced" },
+      { item: "Cooked brown rice", amount: "1 cup" },
+      { item: "Broccoli florets", amount: "1.5 cups" },
+      { item: "Soy sauce", amount: "2 tbsp" },
+      { item: "Garlic", amount: "2 cloves, minced" },
+      { item: "Fresh ginger", amount: "1/4 tsp, grated" },
+      { item: "Sesame oil", amount: "1 tsp" },
+      { item: "Red pepper flakes", amount: "1/4 tsp" },
+      { item: "Honey", amount: "1 tsp" },
+      { item: "Olive oil", amount: "1 tsp" },
+    ],
+    instructions: [
+      "Whisk soy sauce, honey, sesame oil, garlic, ginger, and red pepper flakes into a Sichuan-style glaze.",
+      "Heat olive oil in a skillet over medium-high. Pan-fry tempeh slices 2–3 minutes per side until crispy.",
+      "Add broccoli to the pan, pour glaze over everything, and stir-fry 2 minutes until broccoli is tender-crisp.",
+      "Serve tempeh and broccoli over rice.",
+    ],
+    usdaQuery: "tempeh broccoli rice bowl soy ginger stir-fry Asian",
+    budgetTier: 3,
+  },
+
+  // ─── DINNERS (5) ──────────────────────────────────────────────────────────
+  {
+    id: "d24",
+    name: "Provençal Pan-Seared Salmon with Quinoa & Roasted Asparagus",
+    calories: 610,
+    protein: 50,
+    carbs: 44,
+    fat: 26,
+    cost: 6.80,
+    type: "dinner",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Salmon fillet", amount: "6 oz" },
+      { item: "Cooked quinoa", amount: "1 cup" },
+      { item: "Asparagus spears", amount: "8 spears" },
+      { item: "Olive oil", amount: "1 tbsp" },
+      { item: "Garlic", amount: "2 cloves, minced" },
+      { item: "Lemon juice", amount: "1 tbsp" },
+      { item: "Oregano", amount: "1/2 tsp" },
+      { item: "Cumin", amount: "1/4 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Preheat oven to 425°F. Toss asparagus with half the oil, garlic, salt, and pepper; roast 12 minutes until tender and slightly charred.",
+      "Season salmon with oregano, cumin, red pepper flakes, salt, and pepper.",
+      "Heat remaining oil in a skillet over medium-high. Sear salmon skin-side up 3 minutes; flip and cook 3–4 more minutes until golden.",
+      "Serve salmon over quinoa with roasted asparagus; drizzle with lemon juice.",
+    ],
+    usdaQuery: "pan-seared salmon quinoa roasted asparagus Mediterranean",
+    budgetTier: 3,
+  },
+  {
+    id: "d25",
+    name: "Ancho Ember-Charred Steak Fajita Bowl with Avocado",
+    calories: 700,
+    protein: 50,
+    carbs: 56,
+    fat: 28,
+    cost: 7.50,
+    type: "dinner",
+    contains: ["meat"],
+    ingredients: [
+      { item: "Sirloin steak", amount: "6 oz" },
+      { item: "Cooked brown rice", amount: "1 cup" },
+      { item: "Bell pepper", amount: "1 medium, sliced" },
+      { item: "Onion", amount: "1/2 medium, sliced" },
+      { item: "Avocado", amount: "1/4, sliced" },
+      { item: "Olive oil", amount: "1 tbsp" },
+      { item: "Cumin", amount: "1 tsp" },
+      { item: "Chili powder", amount: "1/2 tsp" },
+      { item: "Smoked paprika", amount: "1/2 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Lime juice", amount: "1 tbsp" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Rub steak with cumin, chili powder, smoked paprika, garlic powder, salt, and pepper.",
+      "Sear steak in half the oil over high heat 3–4 minutes per side for medium-rare. Rest 5 minutes, then slice against the grain.",
+      "In the same pan, sauté bell pepper and onion in remaining oil over medium-high until charred and tender, 5 minutes.",
+      "Build the bowl: rice, charred peppers and onion, sliced steak, and avocado. Drizzle with lime juice.",
+    ],
+    usdaQuery: "steak fajita bowl avocado rice peppers Mexican",
+    budgetTier: 3,
+  },
+  {
+    id: "d26",
+    name: "Wok-Blazed Sesame-Ginger Shrimp Stir-Fry",
+    calories: 540,
+    protein: 46,
+    carbs: 62,
+    fat: 14,
+    cost: 5.80,
+    type: "dinner",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Shrimp", amount: "6 oz, peeled and deveined" },
+      { item: "Cooked brown rice", amount: "1 cup" },
+      { item: "Broccoli florets", amount: "1.5 cups" },
+      { item: "Bell pepper", amount: "1/2 medium, sliced" },
+      { item: "Soy sauce", amount: "2 tbsp" },
+      { item: "Garlic", amount: "2 cloves, minced" },
+      { item: "Fresh ginger", amount: "1/4 tsp, grated" },
+      { item: "Sesame oil", amount: "1.5 tsp" },
+      { item: "Honey", amount: "1 tsp" },
+      { item: "Red pepper flakes", amount: "1/4 tsp" },
+      { item: "Olive oil", amount: "1 tsp" },
+    ],
+    instructions: [
+      "Whisk soy sauce, honey, sesame oil, and red pepper flakes into a stir-fry sauce.",
+      "Heat olive oil in a wok or skillet over high until smoking. Stir-fry broccoli and bell pepper 3 minutes.",
+      "Push vegetables to the side; add shrimp and cook 1–2 minutes per side until pink.",
+      "Pour sauce over everything, toss to coat, and serve immediately over rice.",
+    ],
+    usdaQuery: "shrimp stir-fry broccoli brown rice sesame ginger Asian",
+    budgetTier: 3,
+  },
+  {
+    id: "d27",
+    name: "Smoky BBQ-Glazed Salmon with Roasted Sweet Potato & Broccoli",
+    calories: 600,
+    protein: 46,
+    carbs: 52,
+    fat: 26,
+    cost: 6.50,
+    type: "dinner",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Salmon fillet", amount: "6 oz" },
+      { item: "Sweet potato", amount: "1 medium, cubed" },
+      { item: "Broccoli florets", amount: "1.5 cups" },
+      { item: "Olive oil", amount: "1 tbsp" },
+      { item: "Honey", amount: "1 tbsp" },
+      { item: "Smoked paprika", amount: "3/4 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Cumin", amount: "1/4 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Preheat oven to 425°F. Toss sweet potato cubes with half the oil, smoked paprika, cumin, salt, and pepper; roast 15 minutes.",
+      "Add broccoli to the pan; roast 10 more minutes until sweet potato is tender and broccoli is charred at the edges.",
+      "Mix honey, remaining oil, garlic powder, and red pepper flakes into a BBQ glaze; brush onto salmon.",
+      "Nestle salmon among the vegetables and roast 10–12 minutes until cooked through. Serve straight from the pan.",
+    ],
+    usdaQuery: "BBQ salmon sweet potato broccoli roasted sheet pan",
+    budgetTier: 3,
+  },
+  {
+    id: "d28",
+    name: "Calabrian Herb-Crusted Steak with Roasted Potatoes & Spinach",
+    calories: 640,
+    protein: 50,
+    carbs: 54,
+    fat: 26,
+    cost: 8.00,
+    type: "dinner",
+    contains: ["meat"],
+    ingredients: [
+      { item: "Sirloin steak", amount: "6 oz" },
+      { item: "Potato", amount: "2 medium, cubed" },
+      { item: "Baby spinach", amount: "2 cups" },
+      { item: "Olive oil", amount: "1 tbsp" },
+      { item: "Garlic", amount: "2 cloves, minced" },
+      { item: "Italian seasoning", amount: "1/2 tsp" },
+      { item: "Red pepper flakes", amount: "1/4 tsp" },
+      { item: "Smoked paprika", amount: "1/4 tsp" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Preheat oven to 425°F. Toss potato cubes with half the oil, half the garlic, Italian seasoning, smoked paprika, salt, and pepper. Roast 25 minutes until golden.",
+      "Rub steak with remaining garlic, red pepper flakes, salt, and pepper.",
+      "Sear steak in remaining oil over high heat 3 minutes per side for medium-rare. Rest 5 minutes, then slice.",
+      "Wilt spinach in the steak pan over medium heat 1 minute. Plate potatoes, spinach, and sliced steak.",
+    ],
+    usdaQuery: "sirloin steak roasted potatoes spinach Italian herb",
+    budgetTier: 3,
+  },
+
+  // ─── SNACKS (4) ───────────────────────────────────────────────────────────
+  {
+    id: "s24",
+    name: "Nordic Smoked Salmon & Avocado Rice Cakes",
+    calories: 270,
+    protein: 14,
+    carbs: 22,
+    fat: 14,
+    cost: 3.80,
+    type: "snack",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Smoked salmon", amount: "2 oz" },
+      { item: "Avocado", amount: "1/2, mashed" },
+      { item: "Plain rice cakes", amount: "2" },
+      { item: "Capers", amount: "1 tbsp" },
+      { item: "Red onion", amount: "2 tbsp, finely diced" },
+      { item: "Lemon juice", amount: "1 tsp" },
+      { item: "Black pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Mash avocado with lemon juice, red onion, and a pinch of black pepper.",
+      "Spread avocado mash evenly over both rice cakes.",
+      "Drape smoked salmon over the avocado layer.",
+      "Scatter capers on top and serve immediately.",
+    ],
+    usdaQuery: "smoked salmon avocado rice cakes capers Nordic",
+    budgetTier: 3,
+  },
+  {
+    id: "s25",
+    name: "Teriyaki-Glazed Tempeh Bites",
+    calories: 240,
+    protein: 18,
+    carbs: 18,
+    fat: 14,
+    cost: 2.20,
+    type: "snack",
+    contains: [],
+    ingredients: [
+      { item: "Tempeh", amount: "3 oz, cubed" },
+      { item: "Soy sauce", amount: "1 tbsp" },
+      { item: "Honey", amount: "1 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Sesame seeds", amount: "1 tsp" },
+      { item: "Olive oil", amount: "1 tsp" },
+    ],
+    instructions: [
+      "Whisk soy sauce, honey, and garlic powder into a teriyaki glaze.",
+      "Heat oil in a small non-stick pan over medium-high. Add tempeh cubes and sear 2 minutes until golden.",
+      "Flip cubes, pour glaze into the pan, and toss to coat. Cook 1 minute until glaze clings.",
+      "Transfer to a plate and sprinkle with sesame seeds.",
+    ],
+    usdaQuery: "tempeh teriyaki bites soy honey sesame glaze",
+    budgetTier: 3,
+  },
+  {
+    id: "s26",
+    name: "Baja Chilled Shrimp & Avocado Cups",
+    calories: 340,
+    protein: 28,
+    carbs: 32,
+    fat: 14,
+    cost: 4.00,
+    type: "snack",
+    contains: ["fish"],
+    ingredients: [
+      { item: "Shrimp", amount: "4 oz, cooked and chilled" },
+      { item: "Avocado", amount: "1/2, diced" },
+      { item: "Corn tortillas", amount: "2 small, warmed" },
+      { item: "Tomato", amount: "1/2 medium, diced" },
+      { item: "Lime juice", amount: "1 tbsp" },
+      { item: "Cilantro", amount: "1 tbsp, chopped" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Combine diced avocado, tomato, lime juice, cilantro, salt, and pepper in a bowl and toss gently.",
+      "Warm corn tortillas in a dry skillet 30 seconds per side.",
+      "Fold tortillas into cups and fill each with the avocado-tomato mixture.",
+      "Top with chilled shrimp and an extra squeeze of lime.",
+    ],
+    usdaQuery: "shrimp avocado corn tortilla cups Baja Mexican snack",
+    budgetTier: 3,
+  },
+  {
+    id: "s27",
+    name: "Mediterranean Avocado & Quinoa Bowl",
+    calories: 380,
+    protein: 10,
+    carbs: 34,
+    fat: 26,
+    cost: 3.80,
+    type: "snack",
+    contains: [],
+    ingredients: [
+      { item: "Avocado", amount: "1 medium, sliced" },
+      { item: "Cooked quinoa", amount: "1/2 cup" },
+      { item: "Baby spinach", amount: "1 cup" },
+      { item: "Lemon juice", amount: "1 tbsp" },
+      { item: "Olive oil", amount: "1 tsp" },
+      { item: "Garlic powder", amount: "1/4 tsp" },
+      { item: "Red pepper flakes", amount: "pinch" },
+      { item: "Salt and pepper", amount: "to taste" },
+    ],
+    instructions: [
+      "Warm quinoa if refrigerated; season with garlic powder, salt, and pepper.",
+      "Arrange spinach in a bowl; top with warm quinoa.",
+      "Fan sliced avocado over the quinoa.",
+      "Drizzle with olive oil and lemon juice; finish with red pepper flakes.",
+    ],
+    usdaQuery: "avocado quinoa spinach bowl Mediterranean",
+    budgetTier: 3,
   },
 ];

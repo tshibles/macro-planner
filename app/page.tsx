@@ -35,6 +35,7 @@ export default function Home() {
   const router = useRouter();
   const posthog = usePostHog();
   const [budget, setBudget] = useState("");
+  const [numberOfPeople, setNumberOfPeople] = useState("1");
   const [goal, setGoal] = useState("");
   const [diet, setDiet] = useState("");
   const [tier, setTier] = useState("free");
@@ -81,6 +82,7 @@ export default function Home() {
   function buildParams() {
     const p = new URLSearchParams({
       budget: budget || "50",
+      people: numberOfPeople || "1",
       goal,
       diet,
       tier,
@@ -106,6 +108,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           budget: budget || "50",
+          numberOfPeople: parseInt(numberOfPeople || "1"),
           goal,
           diet,
           weight: weight ? parseFloat(weight) : null,
@@ -132,6 +135,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           budget: budget || "50",
+          people: numberOfPeople || "1",
           goal,
           diet,
           tier,
@@ -198,23 +202,41 @@ export default function Home() {
         {/* Form Card */}
         <div className="mt-12 w-full max-w-lg bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl backdrop-blur-sm">
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-            {/* Budget */}
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="budget" className="text-sm font-medium text-gray-300">
-                Weekly grocery budget
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+            {/* Budget + People */}
+            <div className="flex gap-3">
+              <div className="flex flex-col gap-1.5 flex-1">
+                <label htmlFor="budget" className="text-sm font-medium text-gray-300">
+                  Weekly grocery budget
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+                  <input
+                    id="budget"
+                    type="number"
+                    min={10}
+                    max={500}
+                    step={5}
+                    value={budget}
+                    onChange={(e) => setBudget(e.target.value)}
+                    placeholder="50"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5 w-28">
+                <label htmlFor="people" className="text-sm font-medium text-gray-300">
+                  # of people
+                </label>
                 <input
-                  id="budget"
+                  id="people"
                   type="number"
-                  min={10}
-                  max={500}
-                  step={5}
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  placeholder="50"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={numberOfPeople}
+                  onChange={(e) => setNumberOfPeople(e.target.value)}
+                  placeholder="1"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition"
                 />
               </div>
             </div>

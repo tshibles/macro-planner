@@ -58,6 +58,8 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "cooked chicken breast":    { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16 },
   "ground beef":              { unit: "lb",              price: 4.99,  base: "oz",    capacity: 16, calsPerPkg: 975  }, // 215 kcal/100g 80/20 raw × 453g
   "ground turkey":            { unit: "lb",              price: 4.49,  base: "oz",    capacity: 16, calsPerPkg: 680  }, // 150 kcal/100g 93/7 raw × 453g
+  "sirloin steak":            { unit: "lb",              price: 8.99,  base: "oz",    capacity: 16 }, // top sirloin ~500 kcal/100g cooked
+  "tempeh":                   { unit: "pkg (8 oz)",      price: 3.49,  base: "oz",    capacity: 8  }, // fermented soy, ~193 kcal/100g
   "salmon fillet":            { unit: "fillet",          price: 3.99,  base: "count", capacity: 1 },
   "smoked salmon":            { unit: "pkg (4 oz)",      price: 5.99,  base: "oz",    capacity: 4 },
   "canned tuna":              { unit: "can (5 oz)",      price: 1.49,  base: "count", capacity: 1 },

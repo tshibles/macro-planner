@@ -34,6 +34,7 @@ function GroceryContent() {
   const params = useSearchParams();
 
   const budget = parseFloat(params.get("budget") || "50");
+  const numberOfPeople = parseInt(params.get("people") || "1");
   const goal = params.get("goal") || "";
   const diet = params.get("diet") || "";
   const tierParam = params.get("tier") || "free";
@@ -71,6 +72,7 @@ function GroceryContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         budget,
+        numberOfPeople,
         goal,
         diet,
         totalDays: tier.days,
@@ -141,7 +143,7 @@ function GroceryContent() {
   }
 
   function buildPlanParams() {
-    const p = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
+    const p = new URLSearchParams({ budget: String(budget), people: String(numberOfPeople), goal, diet, tier: tierParam });
     if (weightParam) p.set("weight", weightParam);
     if (heightFtParam) p.set("heightFt", heightFtParam);
     if (heightInParam) p.set("heightIn", heightInParam);

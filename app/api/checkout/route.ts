@@ -9,6 +9,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 export async function POST(req: NextRequest) {
   const {
     budget, goal, diet, tier,
+    people = "1",
     weight = "", heightFt = "", heightIn = "", gender = "", state = "",
     origin,
   } = await req.json();
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Free tier does not require checkout" }, { status: 400 });
   }
 
-  const baseParams = new URLSearchParams({ budget, goal, diet, tier });
+  const baseParams = new URLSearchParams({ budget, people, goal, diet, tier });
   if (weight) baseParams.set("weight", weight);
   if (heightFt) baseParams.set("heightFt", heightFt);
   if (heightIn) baseParams.set("heightIn", heightIn);
