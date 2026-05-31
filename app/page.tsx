@@ -16,12 +16,19 @@ const fitnessGoals = [
   { value: "general_health", label: "General Health" },
 ];
 
-const dietaryRestrictions = [
-  { value: "", label: "No restrictions" },
+const dietaryOptions = [
   { value: "vegetarian", label: "Vegetarian" },
   { value: "vegan", label: "Vegan" },
   { value: "gluten_free", label: "Gluten-Free" },
   { value: "dairy_free", label: "Dairy-Free" },
+  { value: "pescatarian", label: "Pescatarian" },
+];
+
+const activityLevels = [
+  { value: "1.2", label: "Sedentary" },
+  { value: "1.375", label: "Lightly Active" },
+  { value: "1.55", label: "Moderately Active" },
+  { value: "1.725", label: "Very Active" },
 ];
 
 const genderOptions = [
@@ -37,7 +44,10 @@ export default function Home() {
   const [budget, setBudget] = useState("");
   const [numberOfPeople, setNumberOfPeople] = useState("1");
   const [goal, setGoal] = useState("");
-  const [diet, setDiet] = useState("");
+  const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
+  const [age, setAge] = useState("");
+  const [activityLevel, setActivityLevel] = useState("1.55");
+  const [allergies, setAllergies] = useState("");
   const [tier, setTier] = useState("free");
   const [weight, setWeight] = useState("");
   const [heightFt, setHeightFt] = useState("");
@@ -48,6 +58,12 @@ export default function Home() {
   const [freeTrialUsed, setFreeTrialUsed] = useState(false);
   const [trialCheckDone, setTrialCheckDone] = useState(false);
 
+  function toggleDiet(value: string) {
+    setSelectedDiets((prev) =>
+      prev.includes(value) ? prev.filter((d) => d !== value) : [...prev, value]
+    );
+  }
+
   useEffect(() => {
     Promise.all([
       fetch("/api/meal-plans/saved").then((r) => r.json()),
@@ -55,12 +71,16 @@ export default function Home() {
     ])
       .then(([{ plan }, statusData]) => {
         if (plan) {
+          const savedDiets: string[] = plan.diets ?? (plan.diet ? [plan.diet] : []);
           const p = new URLSearchParams({
             budget: String(plan.budget),
             goal: plan.goal ?? "",
-            diet: plan.diet ?? "",
             tier: plan.tier ?? "free",
           });
+          if (savedDiets.length > 0) p.set("diets", savedDiets.join(","));
+          if (plan.age) p.set("age", String(plan.age));
+          if (plan.activity_level) p.set("activityLevel", String(plan.activity_level));
+          if (plan.allergies) p.set("allergies", plan.allergies);
           if (plan.weight_lbs) p.set("weight", String(plan.weight_lbs));
           if (plan.height_ft != null) p.set("heightFt", String(plan.height_ft));
           if (plan.height_in != null) p.set("heightIn", String(plan.height_in));
@@ -84,9 +104,12 @@ export default function Home() {
       budget: budget || "50",
       people: numberOfPeople || "1",
       goal,
-      diet,
       tier,
     });
+    if (selectedDiets.length > 0) p.set("diets", selectedDiets.join(","));
+    if (age) p.set("age", age);
+    if (activityLevel) p.set("activityLevel", activityLevel);
+    if (allergies) p.set("allergies", allergies);
     if (weight) p.set("weight", weight);
     if (heightFt) p.set("heightFt", heightFt);
     if (heightIn) p.set("heightIn", heightIn);
@@ -100,7 +123,7 @@ export default function Home() {
     setLoading(true);
 
     const params = buildParams();
-    const planProps = { budget: budget || "50", goal, diet, tier, weight, gender, state };
+    const planProps = { budget: budget || "50", goal, diets: selectedDiets, tier, weight, gender, state };
 
     if (selectedTier.priceInCents === 0) {
       const res = await fetch("/api/free-trial/use", {
@@ -110,7 +133,10 @@ export default function Home() {
           budget: budget || "50",
           numberOfPeople: parseInt(numberOfPeople || "1"),
           goal,
-          diet,
+          diets: selectedDiets,
+          age: age ? parseInt(age) : null,
+          activityLevel: activityLevel ? parseFloat(activityLevel) : null,
+          allergies: allergies || null,
           weight: weight ? parseFloat(weight) : null,
           heightFt: heightFt ? parseInt(heightFt) : null,
           heightIn: heightIn ? parseInt(heightIn) : null,
@@ -137,8 +163,11 @@ export default function Home() {
           budget: budget || "50",
           people: numberOfPeople || "1",
           goal,
-          diet,
+          diets: selectedDiets,
           tier,
+          age: age || "",
+          activityLevel: activityLevel || "",
+          allergies: allergies || "",
           weight: weight || "",
           heightFt: heightFt || "",
           heightIn: heightIn || "",
@@ -262,21 +291,59 @@ export default function Home() {
 
             {/* Dietary Restrictions */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="diet" className="text-sm font-medium text-gray-300">
+              <label className="text-sm font-medium text-gray-300">
                 Dietary restrictions
               </label>
-              <select
-                id="diet"
-                value={diet}
-                onChange={(e) => setDiet(e.target.value)}
-                className={selectClass}
-              >
-                {dietaryRestrictions.map((opt) => (
-                  <option key={opt.value} value={opt.value} className="bg-gray-900">
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <div className="grid grid-cols-2 gap-2">
+                {dietaryOptions.map((opt) => {
+                  const checked = selectedDiets.includes(opt.value);
+                  return (
+                    <label
+                      key={opt.value}
+                      className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 cursor-pointer transition-all ${
+                        checked
+                          ? "border-brand-500/60 bg-brand-500/10"
+                          : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                          checked ? "border-brand-500 bg-brand-500" : "border-gray-600"
+                        }`}
+                      >
+                        {checked && (
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 text-white">
+                            <path d="M10.28 2.28a.75.75 0 0 0-1.06 0L4.5 7 2.78 5.28a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l5.25-5.25a.75.75 0 0 0 0-1.06Z" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-sm text-gray-200">{opt.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleDiet(opt.value)}
+                        className="sr-only"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Allergies */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="allergies" className="text-sm font-medium text-gray-300">
+                Allergies
+                <span className="ml-2 text-xs text-gray-600 font-normal">comma-separated, e.g. eggs, peanuts</span>
+              </label>
+              <input
+                id="allergies"
+                type="text"
+                value={allergies}
+                onChange={(e) => setAllergies(e.target.value)}
+                placeholder="e.g. eggs, peanuts, shellfish"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition"
+              />
             </div>
 
             {/* Body Metrics (optional) */}
@@ -342,18 +409,51 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Gender */}
+              {/* Gender + Age */}
+              <div className="flex gap-2">
+                <div className="flex flex-col gap-1 flex-1">
+                  <label htmlFor="gender" className="text-xs text-gray-500">
+                    Biological sex
+                  </label>
+                  <select
+                    id="gender"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
+                  >
+                    {genderOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value} className="bg-gray-900">
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1 w-24">
+                  <label htmlFor="age" className="text-xs text-gray-500">Age</label>
+                  <input
+                    id="age"
+                    type="number"
+                    min={16}
+                    max={60}
+                    step={1}
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                    placeholder="20"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Activity Level */}
               <div className="flex flex-col gap-1">
-                <label htmlFor="gender" className="text-xs text-gray-500">
-                  Biological sex
-                </label>
+                <label htmlFor="activityLevel" className="text-xs text-gray-500">Activity level</label>
                 <select
-                  id="gender"
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
+                  id="activityLevel"
+                  value={activityLevel}
+                  onChange={(e) => setActivityLevel(e.target.value)}
                   className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
                 >
-                  {genderOptions.map((opt) => (
+                  {activityLevels.map((opt) => (
                     <option key={opt.value} value={opt.value} className="bg-gray-900">
                       {opt.label}
                     </option>

@@ -28,7 +28,10 @@ export async function POST(req: Request) {
   const {
     budget = 50,
     goal = "",
-    diet = "",
+    diets = [],
+    age = null,
+    activityLevel = null,
+    allergies = null,
     weight = null,
     heightFt = null,
     heightIn = null,
@@ -47,13 +50,19 @@ export async function POST(req: Request) {
     );
   }
 
+  const dietsArr: string[] = Array.isArray(diets) ? diets : [];
+
   await supabase.from("meal_plans").upsert(
     {
       user_id: user.id,
       budget: parseFloat(String(budget)),
       goal,
-      diet,
+      diet: dietsArr[0] ?? "",
+      diets: dietsArr,
       tier: "free",
+      age: age != null ? parseInt(String(age)) : null,
+      activity_level: activityLevel != null ? parseFloat(String(activityLevel)) : null,
+      allergies: allergies || null,
       weight_lbs: weight != null ? parseFloat(String(weight)) : null,
       height_ft: heightFt != null ? parseInt(String(heightFt)) : null,
       height_in: heightIn != null ? parseInt(String(heightIn)) : null,

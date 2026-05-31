@@ -1,15 +1,15 @@
-// Mifflin-St Jeor BMR formula, moderately active (1.55) multiplier.
-// Age is assumed 20 (college-student audience).
+// Mifflin-St Jeor BMR formula.
 
 export function calculateTDEE(
   weightLbs: number,
   heightFt: number,
   heightIn: number,
-  gender: string
+  gender: string,
+  age: number = 20,
+  activityLevel: number = 1.55
 ): number {
   const weightKg = weightLbs * 0.453592;
   const heightCm = (heightFt * 12 + heightIn) * 2.54;
-  const age = 20;
 
   const maleBmr = 10 * weightKg + 6.25 * heightCm - 5 * age + 5;
   const femaleBmr = 10 * weightKg + 6.25 * heightCm - 5 * age - 161;
@@ -23,7 +23,7 @@ export function calculateTDEE(
     bmr = maleBmr;
   }
 
-  return Math.round(bmr * 1.55);
+  return Math.round(bmr * activityLevel);
 }
 
 export function getCalorieTarget(tdee: number, goal: string): number {

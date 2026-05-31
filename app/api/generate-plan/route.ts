@@ -4,7 +4,7 @@ import { createClient } from "@/app/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { budget, goal, diet, totalDays, stateCode, numberOfPeople, calorieTarget, planSalt } = body;
+  const { budget, goal, diets, allergies, totalDays, stateCode, numberOfPeople, calorieTarget, planSalt } = body;
 
   if (typeof budget !== "number" || typeof totalDays !== "number") {
     return NextResponse.json({ error: "Missing required params" }, { status: 400 });
@@ -30,13 +30,14 @@ export async function POST(req: NextRequest) {
   const plan = generatePlan(
     budget,
     goal ?? "",
-    diet ?? "",
+    Array.isArray(diets) ? diets : [],
     totalDays,
     stateCode ?? "",
     typeof numberOfPeople === "number" ? numberOfPeople : 1,
     calorieTarget ?? undefined,
     dislikedIds,
-    typeof planSalt === "number" ? planSalt : 0
+    typeof planSalt === "number" ? planSalt : 0,
+    Array.isArray(allergies) ? allergies : []
   );
   return NextResponse.json(plan);
 }

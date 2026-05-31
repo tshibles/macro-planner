@@ -15,8 +15,9 @@ export async function POST(req: NextRequest) {
   }
 
   const {
-    budget, goal, diet, tier,
+    budget, goal, diets = [], tier,
     people = "1",
+    age = "", activityLevel = "", allergies = "",
     weight = "", heightFt = "", heightIn = "", gender = "", state = "",
     origin,
   } = await req.json();
@@ -26,7 +27,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Free tier does not require checkout" }, { status: 400 });
   }
 
-  const baseParams = new URLSearchParams({ budget, people, goal, diet, tier });
+  const dietsArr: string[] = Array.isArray(diets) ? diets : [];
+
+  const baseParams = new URLSearchParams({ budget, people, goal, tier });
+  if (dietsArr.length > 0) baseParams.set("diets", dietsArr.join(","));
+  if (age) baseParams.set("age", age);
+  if (activityLevel) baseParams.set("activityLevel", activityLevel);
+  if (allergies) baseParams.set("allergies", allergies);
   if (weight) baseParams.set("weight", weight);
   if (heightFt) baseParams.set("heightFt", heightFt);
   if (heightIn) baseParams.set("heightIn", heightIn);

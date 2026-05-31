@@ -36,8 +36,12 @@ function GroceryContent() {
   const budget = parseFloat(params.get("budget") || "50");
   const numberOfPeople = parseInt(params.get("people") || "1");
   const goal = params.get("goal") || "";
-  const diet = params.get("diet") || "";
+  const dietsParam = params.get("diets") || "";
+  const selectedDiets = dietsParam ? dietsParam.split(",").filter(Boolean) : [];
   const tierParam = params.get("tier") || "free";
+  const ageParam = params.get("age") || "";
+  const activityLevelParam = params.get("activityLevel") || "";
+  const allergiesParam = params.get("allergies") || "";
   const weightParam = params.get("weight") || "";
   const heightFtParam = params.get("heightFt") || "";
   const heightInParam = params.get("heightIn") || "";
@@ -52,7 +56,9 @@ function GroceryContent() {
         parseFloat(weightParam),
         parseInt(heightFtParam),
         parseInt(heightInParam || "0"),
-        genderParam
+        genderParam,
+        ageParam ? parseInt(ageParam) : 20,
+        activityLevelParam ? parseFloat(activityLevelParam) : 1.55
       )
     : null;
   const calorieTarget = tdee ? getCalorieTarget(tdee, goal) : undefined;
@@ -74,7 +80,8 @@ function GroceryContent() {
         budget,
         numberOfPeople,
         goal,
-        diet,
+        diets: selectedDiets,
+        allergies: allergiesParam ? allergiesParam.split(",").map((s) => s.trim()).filter(Boolean) : [],
         totalDays: tier.days,
         stateCode: stateParam,
         calorieTarget,
@@ -108,8 +115,11 @@ function GroceryContent() {
       body: JSON.stringify({
         budget: String(budget),
         goal,
-        diet,
+        diets: selectedDiets,
         tier: tierParam,
+        age: ageParam || null,
+        activityLevel: activityLevelParam || null,
+        allergies: allergiesParam || null,
         weight: weightParam || null,
         heightFt: heightFtParam || null,
         heightIn: heightInParam || null,
@@ -143,7 +153,11 @@ function GroceryContent() {
   }
 
   function buildPlanParams() {
-    const p = new URLSearchParams({ budget: String(budget), people: String(numberOfPeople), goal, diet, tier: tierParam });
+    const p = new URLSearchParams({ budget: String(budget), people: String(numberOfPeople), goal, tier: tierParam });
+    if (dietsParam) p.set("diets", dietsParam);
+    if (ageParam) p.set("age", ageParam);
+    if (activityLevelParam) p.set("activityLevel", activityLevelParam);
+    if (allergiesParam) p.set("allergies", allergiesParam);
     if (weightParam) p.set("weight", weightParam);
     if (heightFtParam) p.set("heightFt", heightFtParam);
     if (heightInParam) p.set("heightIn", heightInParam);

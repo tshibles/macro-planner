@@ -70,17 +70,31 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
 }
 
 const EXCLUDED_FLAGS: Record<string, DietaryFlag[]> = {
-  vegetarian:  ["meat", "fish"],
-  vegan:       ["meat", "dairy", "fish", "eggs"],
-  gluten_free: ["gluten"],
-  dairy_free:  ["dairy"],
-  halal:       ["pork"],
-  kosher:      ["pork"],
+  vegetarian:   ["meat", "fish"],
+  vegan:        ["meat", "dairy", "fish", "eggs"],
+  gluten_free:  ["gluten"],
+  dairy_free:   ["dairy"],
+  pescatarian:  ["meat"],
+  halal:        ["pork"],
+  kosher:       ["pork"],
 };
 
-function isAllowed(meal: Meal, diet: string): boolean {
-  const excluded = EXCLUDED_FLAGS[diet] ?? [];
-  return !meal.contains.some((f) => excluded.includes(f));
+function isAllowed(meal: Meal, diets: string[]): boolean {
+  if (diets.length === 0) return true;
+  const excluded = new Set<DietaryFlag>();
+  for (const diet of diets) {
+    for (const flag of EXCLUDED_FLAGS[diet] ?? []) excluded.add(flag);
+  }
+  return !meal.contains.some((f) => excluded.has(f));
+}
+
+function hasAllergen(meal: Meal, allergies: string[]): boolean {
+  if (allergies.length === 0) return false;
+  return meal.ingredients.some((ing) =>
+    allergies.some((allergen) =>
+      ing.item.toLowerCase().includes(allergen.toLowerCase().trim())
+    )
+  );
 }
 
 function scoreMeal(meal: Meal, goal: string): number {
@@ -125,7 +139,8 @@ function categorizeIngredient(key: string): "protein" | "carb" | "produce" {
 
 function buildPool(
   type: Meal["type"],
-  diet: string,
+  diets: string[],
+  allergies: string[],
   goal: string,
   rng: () => number,
   budgetTier: 1 | 2 | 3,
@@ -135,17 +150,18 @@ function buildPool(
   const eligible = meals.filter((m) => {
     if (m.type !== type) return false;
     if (m.budgetTier > budgetTier) return false;
-    if (!isAllowed(m, diet)) return false;
+    if (!isAllowed(m, diets)) return false;
+    if (hasAllergen(m, allergies)) return false;
     if (dislikedIds.has(m.id)) return false;
     return true;
   });
 
-  // Fallback: relax budget-tier filter but keep diet + dislike filters
+  // Fallback: relax budget-tier filter but keep diet + allergen + dislike filters
   const pool =
     eligible.length >= 3
       ? eligible
       : meals.filter(
-          (m) => m.type === type && isAllowed(m, diet) && !dislikedIds.has(m.id)
+          (m) => m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id)
         ).slice(0, 8);
 
   const sorted = [...pool].sort((a, b) => {
@@ -307,13 +323,14 @@ function buildGroceryFromMeals(
 export function generatePlan(
   budget: number,
   goal: string,
-  diet: string,
+  diets: string[],
   totalDays: number,
   stateCode: string,
   numberOfPeople: number = 1,
   calorieTarget?: number,
   dislikedIds: string[] = [],
-  planSalt: number = 0
+  planSalt: number = 0,
+  allergies: string[] = []
 ): MealPlan {
   const stateMultiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
   const numWeeks = Math.ceil(totalDays / 7);
@@ -328,14 +345,14 @@ export function generatePlan(
   // with identical stats see different meals.
   const goalIndex =
     ["muscle_gain", "fat_loss", "maintenance", "endurance", "general_health"].indexOf(goal) + 1;
-  const dietIndex =
-    ["", "vegetarian", "vegan", "gluten_free", "dairy_free", "halal", "kosher"].indexOf(diet) + 1;
+  const dietKey = diets.slice().sort().join(",");
+  const dietHash = dietKey.split("").reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) & 0xffffffff, 0);
   const stateIndex =
     stateCode.length >= 2 ? stateCode.charCodeAt(0) + stateCode.charCodeAt(1) : 0;
-  const seed = (Math.round(budget * 100) + goalIndex * 1000 + dietIndex * 100 + stateIndex + planSalt) >>> 0;
+  const seed = (Math.round(budget * 100) + goalIndex * 1000 + dietHash + stateIndex + planSalt) >>> 0;
   const rng = seededRng(seed);
 
-  // Step 3: Build meal pools filtered by budget tier and dietary rules.
+  // Step 3: Build meal pools filtered by budget tier, dietary rules, and allergens.
   const slotCalTargets = calorieTarget
     ? {
         breakfast: calorieTarget * 0.20,
@@ -344,10 +361,10 @@ export function generatePlan(
         snack:     calorieTarget * 0.15,
       }
     : undefined;
-  const bPool = buildPool("breakfast", diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.breakfast);
-  const lPool = buildPool("lunch",     diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.lunch);
-  const dPool = buildPool("dinner",    diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.dinner);
-  const sPool = buildPool("snack",     diet, goal, rng, budgetTier, dislikedSet, slotCalTargets?.snack);
+  const bPool = buildPool("breakfast", diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.breakfast);
+  const lPool = buildPool("lunch",     diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.lunch);
+  const dPool = buildPool("dinner",    diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.dinner);
+  const sPool = buildPool("snack",     diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.snack);
 
   // Step 4: Assign 7 days of meals (the Week 1 template repeated for longer plans).
   const week1Days: DayMeals[] = [];

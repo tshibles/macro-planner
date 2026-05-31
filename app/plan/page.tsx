@@ -19,11 +19,11 @@ const GOAL_LABELS: Record<string, string> = {
 };
 
 const DIET_LABELS: Record<string, string> = {
-  "": "No restrictions",
   vegetarian: "Vegetarian",
   vegan: "Vegan",
   gluten_free: "Gluten-Free",
   dairy_free: "Dairy-Free",
+  pescatarian: "Pescatarian",
 };
 
 const MEAL_ICONS: Record<string, string> = {
@@ -347,9 +347,13 @@ function PlanContent() {
   const budget = parseFloat(params.get("budget") || "50");
   const numberOfPeople = parseInt(params.get("people") || "1");
   const goal = params.get("goal") || "";
-  const diet = params.get("diet") || "";
+  const dietsParam = params.get("diets") || "";
+  const selectedDiets = dietsParam ? dietsParam.split(",").filter(Boolean) : [];
   const tierParam = params.get("tier") || "free";
   const paidParam = params.get("paid") === "true";
+  const ageParam = params.get("age") || "";
+  const activityLevelParam = params.get("activityLevel") || "";
+  const allergiesParam = params.get("allergies") || "";
   const weightParam = params.get("weight") || "";
   const heightFtParam = params.get("heightFt") || "";
   const heightInParam = params.get("heightIn") || "";
@@ -366,7 +370,9 @@ function PlanContent() {
         parseFloat(weightParam),
         parseInt(heightFtParam),
         parseInt(heightInParam || "0"),
-        genderParam
+        genderParam,
+        ageParam ? parseInt(ageParam) : 20,
+        activityLevelParam ? parseFloat(activityLevelParam) : 1.55
       )
     : null;
   const calorieTarget = tdee ? getCalorieTarget(tdee, goal) : undefined;
@@ -387,12 +393,16 @@ function PlanContent() {
           setResolving(false);
           return;
         }
+        const savedDiets: string[] = plan.diets ?? (plan.diet ? [plan.diet] : []);
         const saved = new URLSearchParams({
           budget: String(plan.budget),
           goal: plan.goal ?? "",
-          diet: plan.diet ?? "",
           tier: plan.tier ?? "free",
         });
+        if (savedDiets.length > 0) saved.set("diets", savedDiets.join(","));
+        if (plan.age) saved.set("age", String(plan.age));
+        if (plan.activity_level) saved.set("activityLevel", String(plan.activity_level));
+        if (plan.allergies) saved.set("allergies", plan.allergies);
         if (plan.weight_lbs) saved.set("weight", String(plan.weight_lbs));
         if (plan.height_ft != null) saved.set("heightFt", String(plan.height_ft));
         if (plan.height_in != null) saved.set("heightIn", String(plan.height_in));
@@ -401,8 +411,12 @@ function PlanContent() {
 
         const current = new URLSearchParams({
           budget: String(budget),
-          goal, diet, tier: tierParam,
+          goal, tier: tierParam,
         });
+        if (dietsParam) current.set("diets", dietsParam);
+        if (ageParam) current.set("age", ageParam);
+        if (activityLevelParam) current.set("activityLevel", activityLevelParam);
+        if (allergiesParam) current.set("allergies", allergiesParam);
         if (weightParam) current.set("weight", weightParam);
         if (heightFtParam) current.set("heightFt", heightFtParam);
         if (heightInParam) current.set("heightIn", heightInParam);
@@ -428,7 +442,11 @@ function PlanContent() {
     const maxAttempts = paidParam ? 8 : 1;
 
     function buildCleanUrl() {
-      const p = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
+      const p = new URLSearchParams({ budget: String(budget), goal, tier: tierParam });
+      if (dietsParam) p.set("diets", dietsParam);
+      if (ageParam) p.set("age", ageParam);
+      if (activityLevelParam) p.set("activityLevel", activityLevelParam);
+      if (allergiesParam) p.set("allergies", allergiesParam);
       if (weightParam) p.set("weight", weightParam);
       if (heightFtParam) p.set("heightFt", heightFtParam);
       if (heightInParam) p.set("heightIn", heightInParam);
@@ -472,7 +490,8 @@ function PlanContent() {
         budget,
         numberOfPeople,
         goal,
-        diet,
+        diets: selectedDiets,
+        allergies: allergiesParam ? allergiesParam.split(",").map((s) => s.trim()).filter(Boolean) : [],
         totalDays: tier.days,
         stateCode: stateParam,
         calorieTarget,
@@ -492,7 +511,7 @@ function PlanContent() {
 
   useEffect(() => {
     if (isWeekLocked) {
-      posthog.capture("paywall_hit", { tier: tierParam, budget, goal, diet });
+      posthog.capture("paywall_hit", { tier: tierParam, budget, goal, diets: selectedDiets });
     }
   }, [isWeekLocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -510,7 +529,11 @@ function PlanContent() {
   const underBudget = budgetDiff >= 0;
 
   function buildGroceryParams() {
-    const p = new URLSearchParams({ budget: String(budget), people: String(numberOfPeople), goal, diet, tier: tierParam });
+    const p = new URLSearchParams({ budget: String(budget), people: String(numberOfPeople), goal, tier: tierParam });
+    if (dietsParam) p.set("diets", dietsParam);
+    if (ageParam) p.set("age", ageParam);
+    if (activityLevelParam) p.set("activityLevel", activityLevelParam);
+    if (allergiesParam) p.set("allergies", allergiesParam);
     if (weightParam) p.set("weight", weightParam);
     if (heightFtParam) p.set("heightFt", heightFtParam);
     if (heightInParam) p.set("heightIn", heightInParam);
@@ -582,9 +605,17 @@ function PlanContent() {
                   {GOAL_LABELS[goal]}
                 </span>
               )}
-              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
-                {DIET_LABELS[diet] ?? "No restrictions"}
-              </span>
+              {selectedDiets.length > 0 ? (
+                selectedDiets.map((d) => (
+                  <span key={d} className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                    {DIET_LABELS[d] ?? d}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                  No restrictions
+                </span>
+              )}
               {stateParam && STATE_NAMES[stateParam] && (
                 <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
                   {STATE_NAMES[stateParam]}
