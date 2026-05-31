@@ -53,7 +53,7 @@ function AuthContent() {
         email,
         password,
         options: {
-          emailRedirectTo: "https://campusmacros.com/auth/callback",
+          emailRedirectTo: "https://www.campusmacros.com/auth/callback",
         },
       });
       if (error) {
@@ -74,7 +74,7 @@ function AuthContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: "https://campusmacros.com/auth/callback",
+        redirectTo: "https://www.campusmacros.com/auth/callback",
       },
     });
     if (error) {
