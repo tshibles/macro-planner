@@ -90,10 +90,10 @@ function isAllowed(meal: Meal, diets: string[]): boolean {
 
 function hasAllergen(meal: Meal, allergies: string[]): boolean {
   if (allergies.length === 0) return false;
+  // Strip a trailing 's' to get the root word so 'eggs' matches 'egg white', 'large eggs', etc.
+  const roots = allergies.map((a) => a.toLowerCase().trim().replace(/s$/i, ""));
   return meal.ingredients.some((ing) =>
-    allergies.some((allergen) =>
-      ing.item.toLowerCase().includes(allergen.toLowerCase().trim())
-    )
+    roots.some((root) => ing.item.toLowerCase().includes(root))
   );
 }
 
@@ -156,13 +156,22 @@ function buildPool(
     return true;
   });
 
-  // Fallback: relax budget-tier filter but keep diet + allergen + dislike filters
-  const pool =
-    eligible.length >= 3
-      ? eligible
-      : meals.filter(
-          (m) => m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id)
-        ).slice(0, 8);
+  // Fallback: if pool is too small, relax budget tier by one level to expand options.
+  let pool = eligible;
+  if (eligible.length < 3) {
+    const relaxedTier = Math.min(budgetTier + 1, 3) as 1 | 2 | 3;
+    console.warn(
+      `[generatePlan] ${type} pool has only ${eligible.length} meal(s) after filtering; relaxing budget tier ${budgetTier} → ${relaxedTier}`
+    );
+    pool = meals.filter(
+      (m) =>
+        m.type === type &&
+        m.budgetTier <= relaxedTier &&
+        isAllowed(m, diets) &&
+        !hasAllergen(m, allergies) &&
+        !dislikedIds.has(m.id)
+    );
+  }
 
   const sorted = [...pool].sort((a, b) => {
     const goalDiff = scoreMeal(b, goal) - scoreMeal(a, goal);
