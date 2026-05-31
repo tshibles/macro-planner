@@ -26,7 +26,10 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(xargs ls -la)",
       "Bash(awk '{print $2}')",
-      "Bash(grep -n \"^  {$\\\\|\\\\\"id\\\\\":\\\\|\\\\\"type\\\\\":\\\\|budgetTier:\" /Users/tshibles/macro-planner/app/data/meals.ts)"
+      "Bash(grep -n \"^  {$\\\\|\\\\\"id\\\\\":\\\\|\\\\\"type\\\\\":\\\\|budgetTier:\" /Users/tshibles/macro-planner/app/data/meals.ts)",
+      "Bash(awk -F': ' '{print $2}')",
+      "Bash(sort -k2 -n)",
+      "Bash(awk '{print $2, $4}')"
     ]
   }
 }

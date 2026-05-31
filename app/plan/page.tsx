@@ -418,23 +418,49 @@ function PlanContent() {
       .catch(() => setResolving(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Check the subscriptions table on every load; when returning from Stripe
+  // (?paid=true) poll for up to 12 s to give the webhook time to land.
   useEffect(() => {
     if (isFree) return;
-    const sessionKey = `paid_${tierParam}_${budget}_${goal}_${diet}`;
-    if (paidParam || sessionStorage.getItem(sessionKey) === "true") {
-      sessionStorage.setItem(sessionKey, "true");
-      setUnlocked(true);
-      if (paidParam) {
-        const clean = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
-        if (weightParam) clean.set("weight", weightParam);
-        if (heightFtParam) clean.set("heightFt", heightFtParam);
-        if (heightInParam) clean.set("heightIn", heightInParam);
-        if (genderParam) clean.set("gender", genderParam);
-        if (stateParam) clean.set("state", stateParam);
-        router.replace(`/plan?${clean.toString()}`);
+
+    let active = true;
+    let attempt = 0;
+    const maxAttempts = paidParam ? 8 : 1;
+
+    function buildCleanUrl() {
+      const p = new URLSearchParams({ budget: String(budget), goal, diet, tier: tierParam });
+      if (weightParam) p.set("weight", weightParam);
+      if (heightFtParam) p.set("heightFt", heightFtParam);
+      if (heightInParam) p.set("heightIn", heightInParam);
+      if (genderParam) p.set("gender", genderParam);
+      if (stateParam) p.set("state", stateParam);
+      return p.toString();
+    }
+
+    async function check() {
+      try {
+        const res = await fetch("/api/subscriptions/status");
+        const { unlocked: ok } = await res.json();
+        if (!active) return;
+        if (ok) {
+          setUnlocked(true);
+          if (paidParam) router.replace(`/plan?${buildCleanUrl()}`);
+          return;
+        }
+      } catch {}
+
+      attempt++;
+      if (active && attempt < maxAttempts) {
+        setTimeout(check, 1500);
+      } else if (paidParam && active) {
+        // Webhook didn't land in time — strip the param, leave paywall visible.
+        router.replace(`/plan?${buildCleanUrl()}`);
       }
     }
-  }, [paidParam, budget, goal, diet, tierParam, isFree, router]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    check();
+    return () => { active = false; };
+  }, [isFree, paidParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (resolving) return;

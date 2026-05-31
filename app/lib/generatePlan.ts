@@ -239,7 +239,7 @@ function selectDayMeals(
         : undefined;
 
     const scored = available.map((m) => {
-      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 3.0 : 0;
+      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 15.0 : 0;
       return { m, score: scoreMeal(m, goal) + calFit };
     });
     scored.sort((a, b) => b.score - a.score);
@@ -378,6 +378,50 @@ export function generatePlan(
 
   // Step 5: Balance calorie distribution across days.
   balanceDailyCalories(week1Days);
+
+  // Step 5.5: Budget enforcement — if the projected grocery total exceeds the
+  // weekly budget, swap the most expensive reducible meal to the cheapest
+  // same-type same-tier alternative until the total fits (or nothing left to cut).
+  {
+    const poolBySlot: Record<MealKey, Meal[]> = {
+      breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool,
+    };
+    for (let iter = 0; iter < 28; iter++) {
+      const tentCart = buildGroceryFromMeals(week1Days, stateMultiplier);
+      if (tentCart.totalCost <= perPersonBudget) break;
+
+      // Find the most expensive meal that still has a cheaper option in its pool.
+      let maxReducibleCost = -1;
+      let swapDay = -1;
+      let swapSlot: MealKey = "dinner";
+      for (let d = 0; d < week1Days.length; d++) {
+        for (const slot of ["dinner", "lunch", "breakfast", "snack"] as MealKey[]) {
+          const cur = week1Days[d][slot];
+          const hasAlt = poolBySlot[slot].some((m) => m.id !== cur.id && m.cost < cur.cost);
+          if (hasAlt && cur.cost > maxReducibleCost) {
+            maxReducibleCost = cur.cost;
+            swapDay = d;
+            swapSlot = slot;
+          }
+        }
+      }
+      if (swapDay === -1) break; // every slot is already at its cheapest option
+
+      const cur = week1Days[swapDay][swapSlot];
+      const alt = poolBySlot[swapSlot]
+        .filter((m) => m.id !== cur.id && m.cost < cur.cost)
+        .sort((a, b) => a.cost - b.cost)[0];
+      if (!alt) break;
+
+      week1Days[swapDay][swapSlot] = alt;
+      const day = week1Days[swapDay];
+      day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+      day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
+      day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
+      day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
+      day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
+    }
+  }
 
   // Step 6: Expand to full plan length — week 1 repeats every subsequent week.
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {

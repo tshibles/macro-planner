@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getTierById } from "@/app/data/plans";
+import { createClient } from "@/app/lib/supabase/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-04-22.dahlia",
 });
 
 export async function POST(req: NextRequest) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const {
     budget, goal, diet, tier,
     people = "1",
@@ -45,6 +52,12 @@ export async function POST(req: NextRequest) {
       },
     ],
     mode: "payment",
+    // Attach user ID so the webhook can write the subscription row.
+    client_reference_id: user.id,
+    metadata: {
+      tier: planTier.id,
+      days: String(planTier.days),
+    },
     success_url: successUrl,
     cancel_url: cancelUrl,
   });
