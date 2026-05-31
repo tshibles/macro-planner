@@ -247,16 +247,19 @@ function selectDayMeals(
   calorieTarget: number | undefined,
   goal: string,
   usedTracker: UsedTracker,
-  rng: () => number
+  rng: () => number,
+  dayLabel: string
 ): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
   let allocatedCals = 0;
 
-  function pickBest(pool: Meal[], usedSet: Set<string>, slotsRemaining: number): Meal {
+  function pickBest(pool: Meal[], usedSet: Set<string>, slotsRemaining: number, slotName: string): Meal {
     let available = pool.filter((m) => !usedSet.has(m.id));
     if (available.length === 0) {
+      console.log(`[generatePlan] ${dayLabel} ${slotName}: all ${pool.length} meals used — resetting tracker`);
       usedSet.clear();
       available = [...pool];
     }
+    console.log(`[generatePlan] ${dayLabel} ${slotName}: pool=${pool.length}, available after excluding used=${available.length}, excluded=[${[...usedSet].join(", ") || "none"}]`);
 
     const targetCals =
       calorieTarget !== undefined
@@ -264,25 +267,36 @@ function selectDayMeals(
         : undefined;
 
     const scored = available.map((m) => {
-      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 15.0 : 0;
+      // Weight reduced from 15.0 → 3.0 so calorie fit is balanced against goal score
+      // rather than dominating it (goal scores are ~80–150; at 15x a 20-cal diff swamped them)
+      const calFit = targetCals !== undefined ? -Math.abs(m.calories - targetCals) * 3.0 : 0;
       return { m, score: scoreMeal(m, goal) + calFit };
     });
     scored.sort((a, b) => b.score - a.score);
 
-    const topN = Math.min(2, scored.length);
-    const pick = Math.floor(rng() * topN);
-    const best = scored[pick].m;
+    // Collect all meals within 10% of the top score for random selection, with a
+    // floor of 3 candidates so variety is preserved even when scores cluster tightly.
+    const topScore = scored[0].score;
+    const threshold = topScore - Math.abs(topScore) * 0.10;
+    const withinRange = scored.filter((s) => s.score >= threshold);
+    const candidates = withinRange.length >= Math.min(3, scored.length)
+      ? withinRange
+      : scored.slice(0, Math.min(3, scored.length));
+
+    const pick = Math.floor(rng() * candidates.length);
+    const best = candidates[pick].m;
+    console.log(`[generatePlan] ${dayLabel} ${slotName}: ${candidates.length} candidates (topScore=${topScore.toFixed(1)}, threshold=${threshold.toFixed(1)}) → picked "${best.name}" (id=${best.id})`);
     usedSet.add(best.id);
     return best;
   }
 
-  const breakfast = pickBest(bPool, usedTracker.breakfast, 4);
+  const breakfast = pickBest(bPool, usedTracker.breakfast, 4, "breakfast");
   allocatedCals += breakfast.calories;
-  const lunch = pickBest(lPool, usedTracker.lunch, 3);
+  const lunch = pickBest(lPool, usedTracker.lunch, 3, "lunch");
   allocatedCals += lunch.calories;
-  const dinner = pickBest(dPool, usedTracker.dinner, 2);
+  const dinner = pickBest(dPool, usedTracker.dinner, 2, "dinner");
   allocatedCals += dinner.calories;
-  const snack = pickBest(sPool, usedTracker.snack, 1);
+  const snack = pickBest(sPool, usedTracker.snack, 1, "snack");
 
   return { breakfast, lunch, dinner, snack };
 }
@@ -374,6 +388,10 @@ export function generatePlan(
   const lPool = buildPool("lunch",     diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.lunch);
   const dPool = buildPool("dinner",    diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.dinner);
   const sPool = buildPool("snack",     diets, allergies, goal, rng, budgetTier, dislikedSet, slotCalTargets?.snack);
+  console.log(`[generatePlan] Pool sizes after filtering — breakfast: ${bPool.length}, lunch: ${lPool.length}, dinner: ${dPool.length}, snack: ${sPool.length} (budgetTier=${budgetTier}, diets=[${diets.join(",")}], allergies=[${allergies.join(",")}])`);
+  if (bPool.length < 7 || lPool.length < 7 || dPool.length < 7 || sPool.length < 7) {
+    console.warn(`[generatePlan] One or more pools have fewer than 7 unique meals — some meals will repeat within the week.`);
+  }
 
   // Step 4: Assign 7 days of meals (the Week 1 template repeated for longer plans).
   const week1Days: DayMeals[] = [];
@@ -382,7 +400,7 @@ export function generatePlan(
 
   for (let i = 0; i < week1Length; i++) {
     const { breakfast, lunch, dinner, snack } = selectDayMeals(
-      bPool, lPool, dPool, sPool, calorieTarget, goal, usedTracker, rng
+      bPool, lPool, dPool, sPool, calorieTarget, goal, usedTracker, rng, DAY_NAMES[i % 7]
     );
 
     week1Days.push({
