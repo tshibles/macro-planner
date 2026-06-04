@@ -52,6 +52,60 @@ export interface MealPlan {
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+// Format a scaled number into a human-readable cooking quantity.
+function formatCookingNumber(n: number): string {
+  if (n <= 0) return "0";
+  const whole = Math.floor(n);
+  const frac = n - whole;
+  const FRACS: [number, string][] = [[1 / 4, "1/4"], [1 / 3, "1/3"], [1 / 2, "1/2"], [2 / 3, "2/3"], [3 / 4, "3/4"]];
+  for (const [val, str] of FRACS) {
+    if (Math.abs(frac - val) < 0.09) return whole > 0 ? `${whole} ${str}` : str;
+  }
+  if (frac < 0.09) return String(whole || 1);
+  return n < 10 ? +n.toFixed(1) + "" : String(Math.round(n));
+}
+
+// Multiply the leading numeric token (integer, fraction, mixed number) in an amount string.
+function scaleIngredientAmount(amount: string, multiplier: number): string {
+  if (Math.abs(multiplier - 1) < 0.02) return amount;
+  const s = amount.trim();
+  if (/^(to taste|pinch|dash|handful|few|as needed|optional)/i.test(s)) return amount;
+
+  let parsed: number | null = null;
+  let matchEnd = 0;
+  const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)/);
+  if (mixed) { parsed = parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3]); matchEnd = mixed[0].length; }
+  else {
+    const frac = s.match(/^(\d+)\/(\d+)/);
+    if (frac) { parsed = parseInt(frac[1]) / parseInt(frac[2]); matchEnd = frac[0].length; }
+    else {
+      const dec = s.match(/^(\d+(?:\.\d+)?)/);
+      if (dec) { parsed = parseFloat(dec[1]); matchEnd = dec[0].length; }
+    }
+  }
+  if (parsed === null || parsed === 0) return amount;
+  return formatCookingNumber(parsed * multiplier) + s.slice(matchEnd);
+}
+
+// Return a shallow copy of meal with all macros and ingredient amounts scaled.
+// The original meal object is never mutated.
+function scaleMeal(meal: Meal, multiplier: number): Meal {
+  const m = +multiplier.toFixed(2);
+  return {
+    ...meal,
+    calories: Math.round(meal.calories * m),
+    protein: Math.round(meal.protein * m),
+    carbs: Math.round(meal.carbs * m),
+    fat: Math.round(meal.fat * m),
+    cost: +(meal.cost * m).toFixed(2),
+    portionMultiplier: m,
+    ingredients: meal.ingredients.map((ing) => ({
+      ...ing,
+      amount: scaleIngredientAmount(ing.amount, m),
+    })),
+  };
+}
+
 function seededRng(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -428,6 +482,31 @@ export function generatePlan(
     }
   }
 
+  // Step 5.7: Portion scaling — when the user has a calorie target, scale each
+  // day's meals so the combined calories match the target.  Each day gets its own
+  // multiplier because different meal combos have different base calorie totals.
+  // Multiplier is clamped to [0.5, 2.0] to keep portions realistic.
+  let portionCapped = false;
+  if (calorieTarget) {
+    for (const day of week1Days) {
+      const baseTotal = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+      const raw = calorieTarget / Math.max(baseTotal, 1);
+      const multiplier = Math.min(2.0, Math.max(0.5, raw));
+      if (raw > 2.0 || raw < 0.5) portionCapped = true;
+
+      day.breakfast = scaleMeal(day.breakfast, multiplier);
+      day.lunch     = scaleMeal(day.lunch,     multiplier);
+      day.dinner    = scaleMeal(day.dinner,     multiplier);
+      day.snack     = scaleMeal(day.snack,      multiplier);
+
+      day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+      day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
+      day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
+      day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
+      day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
+    }
+  }
+
   // Step 6: Expand to full plan length — week 1 repeats every subsequent week.
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
     if (i < week1Days.length) return week1Days[i];
@@ -457,14 +536,12 @@ export function generatePlan(
   const weeklyEstimatedCost = weeklyCart.totalCost;
   const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
 
-  const LIBRARY_MAX_DAILY = 2980;
   let budgetCapMessage: string | undefined;
   if (calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.95)) {
-    const isLibraryCapped = avgDailyCalories >= Math.round(LIBRARY_MAX_DAILY * 0.95);
-    budgetCapMessage = isLibraryCapped
-      ? `Plan averages ${avgDailyCalories.toLocaleString()} cal/day — the current meal library` +
-        ` tops out near ${LIBRARY_MAX_DAILY.toLocaleString()} cal/day vs your` +
-        ` ${calorieTarget.toLocaleString()} cal goal`
+    budgetCapMessage = portionCapped
+      ? `Portions capped at ${calorieTarget > avgDailyCalories ? "2×" : "0.5×"} — plan averages` +
+        ` ${avgDailyCalories.toLocaleString()} cal/day vs your ${calorieTarget.toLocaleString()} cal goal.` +
+        ` Consider a higher budget or fewer dietary restrictions to unlock higher-calorie meals.`
       : `Plan averages ${avgDailyCalories.toLocaleString()} cal/day toward your` +
         ` ${calorieTarget.toLocaleString()} cal goal`;
   }

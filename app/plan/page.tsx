@@ -73,7 +73,7 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
 
   useEffect(() => {
     // Skip USDA lookup for scaled meals — our scaled values are authoritative
-    if (meal.portionMultiplier && meal.portionMultiplier > 1) {
+    if (meal.portionMultiplier && meal.portionMultiplier !== 1) {
       setUsdaLoading(false);
       return;
     }
@@ -145,9 +145,9 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
               <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
                 Macro Breakdown
               </h3>
-              {meal.portionMultiplier && meal.portionMultiplier > 1 ? (
+              {meal.portionMultiplier && meal.portionMultiplier !== 1 ? (
                 <span className="text-xs text-amber-400/70">
-                  ×{meal.portionMultiplier.toFixed(1)} scaled portions
+                  ×{meal.portionMultiplier.toFixed(2)} portions
                 </span>
               ) : usdaLoading ? (
                 <span className="text-xs text-gray-600 flex items-center gap-1.5">
