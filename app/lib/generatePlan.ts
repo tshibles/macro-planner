@@ -404,9 +404,14 @@ export function generatePlan(
       if (swapDay === -1) break; // every slot is already at its cheapest option
 
       const cur = week1Days[swapDay][swapSlot];
-      const alt = poolBySlot[swapSlot]
-        .filter((m) => m.id !== cur.id && m.cost < cur.cost)
-        .sort((a, b) => a.cost - b.cost)[0];
+      const usedIdsInSlot = new Set(
+        week1Days.filter((_, di) => di !== swapDay).map((d) => d[swapSlot].id)
+      );
+      const cheaperPool = poolBySlot[swapSlot].filter((m) => m.id !== cur.id && m.cost < cur.cost);
+      // Prefer a cheaper meal not already used on another day; fall back to any cheaper meal.
+      const alt =
+        cheaperPool.filter((m) => !usedIdsInSlot.has(m.id)).sort((a, b) => a.cost - b.cost)[0] ??
+        cheaperPool.sort((a, b) => a.cost - b.cost)[0];
       if (!alt) break;
 
       week1Days[swapDay][swapSlot] = alt;
