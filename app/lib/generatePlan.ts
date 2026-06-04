@@ -386,32 +386,36 @@ export function generatePlan(
       const tentCart = buildGroceryFromMeals(week1Days, stateMultiplier);
       if (tentCart.totalCost <= perPersonBudget) break;
 
-      // Find the most expensive meal that still has a cheaper option in its pool.
+      // Find the most expensive meal that has a cheaper *unique* option in its pool.
+      // "Unique" means not already assigned to another day in the same slot.
       let maxReducibleCost = -1;
       let swapDay = -1;
       let swapSlot: MealKey = "dinner";
       for (let d = 0; d < week1Days.length; d++) {
         for (const slot of ["dinner", "lunch", "breakfast", "snack"] as MealKey[]) {
           const cur = week1Days[d][slot];
-          const hasAlt = poolBySlot[slot].some((m) => m.id !== cur.id && m.cost < cur.cost);
-          if (hasAlt && cur.cost > maxReducibleCost) {
+          const usedElsewhere = new Set(
+            week1Days.filter((_, di) => di !== d).map((day) => day[slot as MealKey].id)
+          );
+          const hasUniqueAlt = poolBySlot[slot].some(
+            (m) => m.id !== cur.id && m.cost < cur.cost && !usedElsewhere.has(m.id)
+          );
+          if (hasUniqueAlt && cur.cost > maxReducibleCost) {
             maxReducibleCost = cur.cost;
             swapDay = d;
             swapSlot = slot;
           }
         }
       }
-      if (swapDay === -1) break; // every slot is already at its cheapest option
+      if (swapDay === -1) break; // no meal can be swapped to a unique cheaper alternative
 
       const cur = week1Days[swapDay][swapSlot];
       const usedIdsInSlot = new Set(
         week1Days.filter((_, di) => di !== swapDay).map((d) => d[swapSlot].id)
       );
-      const cheaperPool = poolBySlot[swapSlot].filter((m) => m.id !== cur.id && m.cost < cur.cost);
-      // Prefer a cheaper meal not already used on another day; fall back to any cheaper meal.
-      const alt =
-        cheaperPool.filter((m) => !usedIdsInSlot.has(m.id)).sort((a, b) => a.cost - b.cost)[0] ??
-        cheaperPool.sort((a, b) => a.cost - b.cost)[0];
+      const alt = poolBySlot[swapSlot]
+        .filter((m) => m.id !== cur.id && m.cost < cur.cost && !usedIdsInSlot.has(m.id))
+        .sort((a, b) => a.cost - b.cost)[0];
       if (!alt) break;
 
       week1Days[swapDay][swapSlot] = alt;
