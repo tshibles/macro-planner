@@ -337,17 +337,23 @@ function parseLeadingNumber(s: string): number | null {
 export function lookupPurchasable(key: string): PurchasableUnitDef | null {
   if (PURCHASABLE_MAP[key]) return PURCHASABLE_MAP[key];
 
-  // Substring: map key inside ingredient name ("chicken breast" inside "boneless chicken breast")
+  // Collect every substring match from both directions, then return the one with
+  // the longest map key (most specific).  Running both passes before deciding
+  // prevents "broccoli" from winning over "broccoli florets" when the ingredient
+  // key is "broccoli floret" — which matches "broccoli" in Pass 1 but matches
+  // "broccoli florets" (the map key contains the key) in Pass 2.
+  let best: { len: number; def: PurchasableUnitDef } | null = null;
+
   for (const [mapKey, def] of Object.entries(PURCHASABLE_MAP)) {
-    if (key.includes(mapKey) && mapKey.length > 4) return def;
+    const isMatch =
+      (key.includes(mapKey) && mapKey.length > 4) ||   // map key inside ingredient
+      (mapKey.includes(key) && key.length > 4);         // ingredient inside map key
+    if (isMatch && (!best || mapKey.length > best.len)) {
+      best = { len: mapKey.length, def };
+    }
   }
 
-  // Substring: ingredient name inside map key
-  for (const [mapKey, def] of Object.entries(PURCHASABLE_MAP)) {
-    if (mapKey.includes(key) && key.length > 4) return def;
-  }
-
-  return null;
+  return best ? best.def : null;
 }
 
 // ── Pluralization ─────────────────────────────────────────────────────────────
