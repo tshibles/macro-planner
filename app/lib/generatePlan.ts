@@ -458,59 +458,6 @@ export function generatePlan(
   // Step 5: Balance calorie distribution across days.
   balanceDailyCalories(week1Days);
 
-  // Step 5.5: Budget enforcement — if the projected grocery total exceeds the
-  // weekly budget, swap the most expensive reducible meal to the cheapest
-  // same-type same-tier alternative until the total fits (or nothing left to cut).
-  {
-    const poolBySlot: Record<MealKey, Meal[]> = {
-      breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool,
-    };
-    for (let iter = 0; iter < 28; iter++) {
-      const tentCart = buildGroceryFromMeals(week1Days, stateMultiplier);
-      if (tentCart.totalCost <= perPersonBudget) break;
-
-      // Find the most expensive meal that has a cheaper *unique* option in its pool.
-      // "Unique" means not already assigned to another day in the same slot.
-      let maxReducibleCost = -1;
-      let swapDay = -1;
-      let swapSlot: MealKey = "dinner";
-      for (let d = 0; d < week1Days.length; d++) {
-        for (const slot of ["dinner", "lunch", "breakfast", "snack"] as MealKey[]) {
-          const cur = week1Days[d][slot];
-          const usedElsewhere = new Set(
-            week1Days.filter((_, di) => di !== d).map((day) => day[slot as MealKey].id)
-          );
-          const hasUniqueAlt = poolBySlot[slot].some(
-            (m) => m.id !== cur.id && m.cost < cur.cost && !usedElsewhere.has(m.id)
-          );
-          if (hasUniqueAlt && cur.cost > maxReducibleCost) {
-            maxReducibleCost = cur.cost;
-            swapDay = d;
-            swapSlot = slot;
-          }
-        }
-      }
-      if (swapDay === -1) break; // no meal can be swapped to a unique cheaper alternative
-
-      const cur = week1Days[swapDay][swapSlot];
-      const usedIdsInSlot = new Set(
-        week1Days.filter((_, di) => di !== swapDay).map((d) => d[swapSlot].id)
-      );
-      const alt = poolBySlot[swapSlot]
-        .filter((m) => m.id !== cur.id && m.cost < cur.cost && !usedIdsInSlot.has(m.id))
-        .sort((a, b) => a.cost - b.cost)[0];
-      if (!alt) break;
-
-      week1Days[swapDay][swapSlot] = alt;
-      const day = week1Days[swapDay];
-      day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
-      day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
-      day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
-      day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
-      day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
-    }
-  }
-
   // Step 5.7: Portion scaling — when the user has a calorie target, scale each
   // day's meals so the combined calories match the target.  Each day gets its own
   // multiplier because different meal combos have different base calorie totals.
@@ -533,6 +480,100 @@ export function generatePlan(
       day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
       day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
       day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
+    }
+  }
+
+  // Step 5.9: Budget enforcement — runs AFTER portion scaling so it checks the
+  // actual scaled grocery cost the user will pay.  When a meal is swapped out,
+  // the replacement is scaled with the same per-day multiplier so calorie
+  // accuracy is preserved as much as possible.
+  {
+    const poolBySlot: Record<MealKey, Meal[]> = {
+      breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool,
+    };
+    // Track (day:slot:mealId) combinations already tried to prevent oscillation.
+    const triedSwaps = new Set<string>();
+
+    for (let iter = 0; iter < 28; iter++) {
+      const currentCost = buildGroceryFromMeals(week1Days, stateMultiplier).totalCost;
+      if (currentCost <= perPersonBudget) break;
+
+      // Each day may have a different portion multiplier stored on its meals.
+      // Recover it from the breakfast slot (all slots on the same day share the same mult).
+      const getDayMult = (d: number) => week1Days[d].breakfast.portionMultiplier ?? 1;
+
+      // Find the most expensive scaled meal that has an untried cheaper *unique* pool alt.
+      // "Cheaper" here means the pool meal's base cost × dayMult < current scaled cost.
+      let maxReducibleCost = -1;
+      let swapDay = -1;
+      let swapSlot: MealKey = "dinner";
+      for (let d = 0; d < week1Days.length; d++) {
+        const dayMult = getDayMult(d);
+        for (const slot of ["dinner", "lunch", "breakfast", "snack"] as MealKey[]) {
+          const cur = week1Days[d][slot];
+          const usedElsewhere = new Set(
+            week1Days.filter((_, di) => di !== d).map((day) => day[slot as MealKey].id)
+          );
+          const hasUniqueAlt = poolBySlot[slot].some(
+            (m) =>
+              m.id !== cur.id &&
+              m.cost * dayMult < cur.cost &&
+              !usedElsewhere.has(m.id) &&
+              !triedSwaps.has(`${d}:${slot}:${m.id}`)
+          );
+          if (hasUniqueAlt && cur.cost > maxReducibleCost) {
+            maxReducibleCost = cur.cost;
+            swapDay = d;
+            swapSlot = slot;
+          }
+        }
+      }
+      if (swapDay === -1) break; // all cheaper alternatives exhausted or already tried
+
+      const dayMult = getDayMult(swapDay);
+      const cur = week1Days[swapDay][swapSlot];
+      const usedIdsInSlot = new Set(
+        week1Days.filter((_, di) => di !== swapDay).map((d) => d[swapSlot].id)
+      );
+
+      // Sort candidates cheapest-first; try each until one actually reduces the grocery total.
+      // This avoids committing swaps that increase cost due to broken ingredient-sharing.
+      const candidates = poolBySlot[swapSlot]
+        .filter(
+          (m) =>
+            m.id !== cur.id &&
+            m.cost * dayMult < cur.cost &&
+            !usedIdsInSlot.has(m.id) &&
+            !triedSwaps.has(`${swapDay}:${swapSlot}:${m.id}`)
+        )
+        .sort((a, b) => a.cost - b.cost);
+
+      let committed = false;
+      for (const baseAlt of candidates) {
+        const swapKey = `${swapDay}:${swapSlot}:${baseAlt.id}`;
+        triedSwaps.add(swapKey);
+
+        const savedMeal = week1Days[swapDay][swapSlot];
+        week1Days[swapDay][swapSlot] = scaleMeal(baseAlt, dayMult);
+        const newCost = buildGroceryFromMeals(week1Days, stateMultiplier).totalCost;
+
+        if (newCost < currentCost) {
+          // Commit: update day totals and move to the next iteration
+          const day = week1Days[swapDay];
+          day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+          day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
+          day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
+          day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
+          day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
+          committed = true;
+          break;
+        } else {
+          // Revert: this swap doesn't actually reduce the grocery bill
+          week1Days[swapDay][swapSlot] = savedMeal;
+        }
+      }
+
+      if (!committed) break; // no candidate reduced cost → stop rather than oscillate
     }
   }
 

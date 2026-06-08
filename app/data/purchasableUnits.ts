@@ -14,34 +14,56 @@ export interface PurchasableUnitDef {
 // ── Pantry Staples ────────────────────────────────────────────────────────────
 // Items assumed to be in a typical kitchen; listed separately with no price impact on the total.
 export const PANTRY_STAPLES = new Set([
+  // Water
+  "water",
+  // Salts & basic seasoning
   "salt",
   "black pepper",
   "salt and pepper",
   "pepper",
+  // Oils & fats
   "olive oil",
   "butter",
   "cooking spray",
+  // Dry spices & herbs — base set
   "garlic powder",
   "onion powder",
   "cumin",
   "paprika",
+  "smoked paprika",
   "chili powder",
+  "cayenne pepper",
+  "cayenne",
+  "pinch of cayenne",
   "dried oregano",
   "oregano",
   "basil",
   "fresh basil",
   "cinnamon",
+  "nutmeg",
+  "ginger powder",
+  // Jarred spices that appear on the grocery list but are pantry-grade
+  // normalizeKey singularizes "flakes" → "flake", so both forms needed
+  "red pepper flakes",
+  "red pepper flake",
+  "italian seasoning",
+  // Extracts & flavor enhancers
+  // "vanilla extract" normalizes to "extract" via normalizeKey (strips "vanilla" adjective)
+  "vanilla extract",
+  "extract",
+  // Sweeteners & baking
   "sugar",
   "flour",
   "whole wheat flour",
   "oat flour",
+  "baking powder",
+  "baking soda",
+  // Condiments & sauces
   "soy sauce",
   "hot sauce",
   "vinegar",
   "rice vinegar",
   "white vinegar",
-  "baking powder",
-  "baking soda",
 ]);
 
 export function isPantryStaple(key: string): boolean {
