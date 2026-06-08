@@ -75,11 +75,11 @@ export function isPantryStaple(key: string): boolean {
 export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   // ── Proteins ────────────────────────────────────────────────────────────────
   // calsPerPkg: USDA kcal per purchasable unit (used by groceryCart to quantity-plan by calorie target)
-  "chicken breast":           { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16, calsPerPkg: 600  }, // 109 kcal/100g raw × 453g, ~10% upward adj for edible yield
-  "grilled chicken breast":   { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16 },
-  "cooked chicken breast":    { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16 },
-  "ground beef":              { unit: "lb",              price: 4.99,  base: "oz",    capacity: 16, calsPerPkg: 975  }, // 215 kcal/100g 80/20 raw × 453g
-  "ground turkey":            { unit: "lb",              price: 4.49,  base: "oz",    capacity: 16, calsPerPkg: 680  }, // 150 kcal/100g 93/7 raw × 453g
+  "chicken breast":           { unit: "lb",              price: 3.71,  base: "oz",    capacity: 16, calsPerPkg: 600  }, // Walmart Great Value value pack
+  "grilled chicken breast":   { unit: "lb",              price: 3.71,  base: "oz",    capacity: 16 },
+  "cooked chicken breast":    { unit: "lb",              price: 3.71,  base: "oz",    capacity: 16 },
+  "ground beef":              { unit: "lb",              price: 5.75,  base: "oz",    capacity: 16, calsPerPkg: 975  }, // Walmart 80/20
+  "ground turkey":            { unit: "lb",              price: 3.99,  base: "oz",    capacity: 16, calsPerPkg: 680  }, // Walmart Great Value 93/7
   "sirloin steak":            { unit: "lb",              price: 8.99,  base: "oz",    capacity: 16 }, // top sirloin ~500 kcal/100g cooked
   "tempeh":                   { unit: "pkg (8 oz)",      price: 3.49,  base: "oz",    capacity: 8  }, // fermented soy, ~193 kcal/100g
   "salmon fillet":            { unit: "fillet",          price: 3.99,  base: "count", capacity: 1 },
@@ -98,14 +98,14 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "tofu":                     { unit: "block (14 oz)",   price: 2.49,  base: "oz",    capacity: 14 },
 
   // ── Eggs & Dairy ────────────────────────────────────────────────────────────
-  "egg":                      { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
-  "large eggs":               { unit: "dozen",              price: 3.49, base: "count", capacity: 12, calsPerPkg: 864  }, // 72 kcal × 12
-  "large egg":                { unit: "dozen",              price: 3.49, base: "count", capacity: 12 },
+  "egg":                      { unit: "dozen",              price: 1.97, base: "count", capacity: 12 }, // Walmart Great Value
+  "large eggs":               { unit: "dozen",              price: 1.97, base: "count", capacity: 12, calsPerPkg: 864  }, // Walmart Great Value
+  "large egg":                { unit: "dozen",              price: 1.97, base: "count", capacity: 12 },
   "egg whites":               { unit: "carton",             price: 3.49, base: "count", capacity: 1 },
   "plain greek yogurt":       { unit: "container (32 oz)",  price: 4.99, base: "tbsp",  capacity: 64 },
   "greek yogurt":             { unit: "container (32 oz)",  price: 4.99, base: "tbsp",  capacity: 64 },
-  "milk":                     { unit: "gallon",             price: 3.99, base: "tbsp",  capacity: 256 },
-  "2% milk":                  { unit: "gallon",             price: 3.99, base: "tbsp",  capacity: 256 },
+  "milk":                     { unit: "gallon",             price: 2.72, base: "tbsp",  capacity: 256 }, // Walmart Great Value
+  "2% milk":                  { unit: "gallon",             price: 2.72, base: "tbsp",  capacity: 256 },
   "unsweetened almond milk":  { unit: "half-gallon",        price: 3.49, base: "tbsp",  capacity: 128 },
   "almond milk":              { unit: "half-gallon",        price: 3.49, base: "tbsp",  capacity: 128 },
   "low-fat cottage cheese":   { unit: "container (16 oz)",  price: 2.99, base: "tbsp",  capacity: 32 },
@@ -134,7 +134,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "diced tomato":             { unit: "tomato",       price: 0.89, base: "count", capacity: 1 },
   "cherry tomatoes":          { unit: "pint",         price: 2.99, base: "count", capacity: 20 },
   "bell pepper":              { unit: "pepper",       price: 0.99, base: "count", capacity: 1 },
-  "broccoli florets":         { unit: "bag (12 oz)",  price: 1.99, base: "oz",    capacity: 12 },
+  "broccoli florets":         { unit: "bag (12 oz)",  price: 1.16, base: "oz",    capacity: 12 }, // Walmart Great Value frozen
   "broccoli":                 { unit: "head",         price: 1.99, base: "count", capacity: 1 },
   "potato":                   { unit: "bag (5 lb)",   price: 3.99, base: "count", capacity: 8 },
   "sweet potato":             { unit: "sweet potato", price: 0.99, base: "count", capacity: 1 },
@@ -186,8 +186,8 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "sushi rice":               { unit: "bag (2 lb)",        price: 3.49, base: "tbsp",  capacity: 160 },
   "cooked quinoa":            { unit: "bag (16 oz dry)",   price: 4.99, base: "tbsp",  capacity: 192 },
   "quinoa":                   { unit: "bag (16 oz dry)",   price: 4.99, base: "tbsp",  capacity: 192 },
-  "penne or rotini pasta":    { unit: "box (16 oz)",       price: 1.49, base: "oz",    capacity: 16 },
-  "pasta":                    { unit: "box (16 oz)",       price: 1.49, base: "oz",    capacity: 16,  calsPerPkg: 1680 }, // 371 kcal/100g dry × 453g
+  "penne or rotini pasta":    { unit: "box (16 oz)",       price: 0.98, base: "oz",    capacity: 16 }, // Walmart Great Value
+  "pasta":                    { unit: "box (16 oz)",       price: 0.98, base: "oz",    capacity: 16,  calsPerPkg: 1680 }, // Walmart Great Value
   "soba noodles":             { unit: "pkg (9 oz)",        price: 2.99, base: "oz",    capacity: 9 },
   "plain rice cakes":         { unit: "bag (3.5 oz)",      price: 2.49, base: "count", capacity: 7 },
   "granola":                  { unit: "bag (12 oz)",       price: 3.99, base: "tbsp",  capacity: 48 },
