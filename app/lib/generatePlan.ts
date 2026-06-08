@@ -46,6 +46,7 @@ export interface MealPlan {
   calorieTarget?: number;
   proteinTarget?: number;
   budgetCapMessage?: string;
+  cartFallbackUsed?: boolean;
   weeklyCart: WeeklyCartSummary;
 }
 
@@ -288,9 +289,7 @@ function buildTargetedCart(
   let calsAcquired = 0;
 
   // ── Phase 1: Proteins ────────────────────────────────────────────────────────
-  const proteinBudgetFraction = goal === "muscle_gain" ? 0.5
-    : goal === "endurance" ? 0.3
-    : 0.4;
+  const proteinBudgetFraction = goal === "muscle_gain" ? 0.5 : 0.4;
   let proteinBudget = weeklyBudget * proteinBudgetFraction;
 
   // Build protein candidates sorted by protein-per-dollar descending.
@@ -437,6 +436,13 @@ function mealEligibleFromCart(meal: Meal, cartEntries: CartEntry[]): boolean {
 // The cart is the budget controller — no budget-tier or cal/$ filtering.
 // A meal is eligible only if its non-pantry ingredients are in the cart.
 
+interface PoolResult {
+  pool: Meal[];
+  usedRelaxedFallback: boolean;
+  usedDietaryFallback: boolean;
+  strictMealIds: Set<string>;
+}
+
 function buildPoolFromCart(
   type: Meal["type"],
   cartEntries: CartEntry[],
@@ -445,15 +451,20 @@ function buildPoolFromCart(
   dislikedIds: Set<string>,
   goal: string,
   rng: () => number
-): Meal[] {
+): PoolResult {
   const baseFilter = (m: Meal) =>
     m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
 
   // Strict: ALL non-pantry ingredients in cart.
-  let pool = meals.filter((m) => baseFilter(m) && mealEligibleFromCart(m, cartEntries));
+  const strictPool = meals.filter((m) => baseFilter(m) && mealEligibleFromCart(m, cartEntries));
+  const strictMealIds = new Set(strictPool.map((m) => m.id));
+  let pool = strictPool;
+  let usedRelaxedFallback = false;
+  let usedDietaryFallback = false;
 
   // Relaxed fallback: ≥60% of mappable non-pantry ingredients in cart.
   if (pool.length < 7) {
+    usedRelaxedFallback = true;
     console.warn(`[generatePlan] ${type} strict pool has only ${pool.length} meals; relaxing to 60% ingredient match`);
     pool = meals.filter((m) => {
       if (!baseFilter(m)) return false;
@@ -473,6 +484,7 @@ function buildPoolFromCart(
 
   // Last resort: dietary filter only (same as original buildPool before cart logic).
   if (pool.length < 7) {
+    usedDietaryFallback = true;
     console.warn(`[generatePlan] ${type} relaxed pool still ${pool.length} meals; falling back to dietary-only filter`);
     pool = meals.filter(baseFilter);
   }
@@ -480,7 +492,7 @@ function buildPoolFromCart(
   const sorted = [...pool].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
   const shuffled = shuffle(sorted, rng);
   console.log(`[generatePlan] ${type} pool: ${shuffled.length} meals (from cart)`);
-  return shuffled;
+  return { pool: shuffled, usedRelaxedFallback, usedDietaryFallback, strictMealIds };
 }
 
 // ── Grocery List Builder (kept for internal use) ───────────────────────────────
@@ -657,10 +669,14 @@ export function generatePlan(
   const rng       = seededRng(seed);
 
   // ── Step 5: Build meal pools from the purchased cart ─────────────────────────
-  const bPool = buildPoolFromCart("breakfast", cartEntries, diets, allergies, dislikedSet, goal, rng);
-  const lPool = buildPoolFromCart("lunch",     cartEntries, diets, allergies, dislikedSet, goal, rng);
-  const dPool = buildPoolFromCart("dinner",    cartEntries, diets, allergies, dislikedSet, goal, rng);
-  const sPool = buildPoolFromCart("snack",     cartEntries, diets, allergies, dislikedSet, goal, rng);
+  const bResult = buildPoolFromCart("breakfast", cartEntries, diets, allergies, dislikedSet, goal, rng);
+  const lResult = buildPoolFromCart("lunch",     cartEntries, diets, allergies, dislikedSet, goal, rng);
+  const dResult = buildPoolFromCart("dinner",    cartEntries, diets, allergies, dislikedSet, goal, rng);
+  const sResult = buildPoolFromCart("snack",     cartEntries, diets, allergies, dislikedSet, goal, rng);
+  const bPool = bResult.pool;
+  const lPool = lResult.pool;
+  const dPool = dResult.pool;
+  const sPool = sResult.pool;
 
   if (bPool.length < 7 || lPool.length < 7 || dPool.length < 7 || sPool.length < 7) {
     console.warn(`[generatePlan] one or more pools have fewer than 7 meals — repeats possible`);
@@ -722,6 +738,59 @@ export function generatePlan(
     }
   }
 
+  // ── Cart Augmentation: add missing ingredients for relaxed-fallback meals ─────
+  // For any selected meal that only passed the 60% relaxed check (not strict),
+  // push its still-missing purchasable ingredients into cartEntries so the
+  // grocery list reflects everything the user actually needs to cook the plan.
+  const poolResultBySlot: Record<MealKey, PoolResult> = {
+    breakfast: bResult, lunch: lResult, dinner: dResult, snack: sResult,
+  };
+  const addedToCart = new Set<string>();
+  let cartFallbackUsed = false;
+
+  for (const day of week1Days) {
+    for (const [slot, meal] of [
+      ["breakfast", day.breakfast], ["lunch", day.lunch],
+      ["dinner", day.dinner],       ["snack", day.snack],
+    ] as [MealKey, Meal][]) {
+      const res = poolResultBySlot[slot];
+      if (!res.usedRelaxedFallback || res.usedDietaryFallback) continue;
+      if (res.strictMealIds.has(meal.id)) continue;
+      for (const ing of meal.ingredients) {
+        const key = normalizeKey(ing.item);
+        if (isPantryStaple(key) || addedToCart.has(key)) continue;
+        const def = lookupPurchasable(key);
+        if (!def) continue;
+        const inCart = cartEntries.some((e) => Math.abs(e.defPrice - def.price) < 0.01 && e.defUnit === def.unit);
+        if (inCart) continue;
+        addedToCart.add(key);
+        const ppu = +(def.price * stateMultiplier).toFixed(2);
+        cartEntries.push({
+          key,
+          displayName: key.replace(/\b\w/g, (c) => c.toUpperCase()),
+          category: categorizeIngredient(key),
+          packages: 1,
+          purchaseLabel: `1 ${def.unit}`,
+          pricePerUnit: ppu,
+          totalCost: ppu,
+          defPrice: def.price,
+          defUnit: def.unit,
+          proteinG: PROTEIN_PER_PKG[key] ?? 0,
+          cals: def.calsPerPkg ?? 0,
+        });
+      }
+    }
+  }
+
+  // If the last-resort dietary-only pool fired, warn the user — those meals may
+  // need ingredients we can't enumerate from PURCHASABLE_MAP.
+  if ([bResult, lResult, dResult, sResult].some((r) => r.usedDietaryFallback)) {
+    cartFallbackUsed = true;
+    const fallbackMsg =
+      "Some meals may require additional ingredients not in your grocery list — consider increasing your budget for a fully matched plan.";
+    budgetCapMessage = budgetCapMessage ? `${budgetCapMessage} ${fallbackMsg}` : fallbackMsg;
+  }
+
   // ── Step 9: Expand to full plan length ───────────────────────────────────────
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
     if (i < week1Days.length) return week1Days[i];
@@ -732,11 +801,11 @@ export function generatePlan(
   const avgDailyCalories = Math.round(week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length);
   const avgDailyProtein  = Math.round(week1Days.reduce((s, d) => s + d.dailyProtein,  0) / week1Days.length);
 
-  // ── Step 10: Return cart from Step 2 as weeklyCart ───────────────────────────
+  // ── Step 10: Return cart from Step 2 as weeklyCart (augmented if fallback fired) ─
   const weeklyCart: WeeklyCartSummary = {
     items: cartEntries.map(({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost }) =>
       ({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost })),
-    totalCost: cartCost,
+    totalCost: +cartEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2),
   };
   const weeklyEstimatedCost = weeklyCart.totalCost;
   const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
@@ -753,6 +822,7 @@ export function generatePlan(
     calorieTarget,
     proteinTarget: dailyProteinTarget ?? undefined,
     budgetCapMessage,
+    cartFallbackUsed: cartFallbackUsed || undefined,
     weeklyCart,
   };
 }
