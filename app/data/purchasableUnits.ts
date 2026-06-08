@@ -178,7 +178,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "pita bread":               { unit: "pkg (6-count)",     price: 2.99, base: "count", capacity: 6 },
   "rice":                     { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
   "cooked white rice":        { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160, calsPerPkg: 3310 }, // 365 kcal/100g dry × 907g
-  "brown rice":               { unit: "bag (2 lb)",        price: 2.99, base: "tbsp",  capacity: 160 },
+  "brown rice":               { unit: "bag (2 lb)",        price: 2.99, base: "tbsp",  capacity: 160, calsPerPkg: 3240 }, // ~357 kcal/100g dry × 907g
   "cooked rice":              { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
   "day-old cooked rice":      { unit: "bag (2 lb)",        price: 2.49, base: "tbsp",  capacity: 160 },
   "cooked basmati rice":      { unit: "bag (2 lb)",        price: 2.99, base: "tbsp",  capacity: 160 },
@@ -214,7 +214,7 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   // ── Nuts, Seeds & Oils ──────────────────────────────────────────────────────
   "sesame oil":               { unit: "bottle (8 fl oz)", price: 3.49, base: "tbsp", capacity: 16 },
   "vegetable oil":            { unit: "bottle (48 fl oz)", price: 2.99, base: "tbsp", capacity: 96 },
-  "peanut butter":            { unit: "jar (18 oz)",    price: 3.99, base: "tbsp",  capacity: 36 },
+  "peanut butter":            { unit: "jar (18 oz)",    price: 3.99, base: "tbsp",  capacity: 36,  calsPerPkg: 3420 }, // 190 kcal/2 tbsp × 18 servings
   "almond butter":            { unit: "jar (16 oz)",    price: 7.99, base: "tbsp",  capacity: 32 },
   "walnuts":                  { unit: "bag (8 oz)",     price: 4.99, base: "oz",    capacity: 8 },
   "chia seeds":               { unit: "bag (12 oz)",    price: 7.99, base: "tbsp",  capacity: 40 },

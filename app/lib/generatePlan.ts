@@ -1,7 +1,7 @@
 import { meals, Meal, DietaryFlag } from "@/app/data/meals";
 import { STATE_MULTIPLIERS } from "@/app/data/stateMultipliers";
 import { normalizeKey } from "@/app/lib/normalizeIngredient";
-import { isPantryStaple, computePurchasable } from "@/app/data/purchasableUnits";
+import { isPantryStaple, computePurchasable, PURCHASABLE_MAP, lookupPurchasable } from "@/app/data/purchasableUnits";
 
 export interface CartItem {
   key: string;
@@ -46,6 +46,18 @@ export interface MealPlan {
   calorieTarget?: number;
   budgetCapMessage?: string;
   weeklyCart: WeeklyCartSummary;
+}
+
+// A calorie-dense ingredient that anchors the staples-first shopping strategy
+// used when calorieDensityScore > 40 (tight budget relative to calorie need).
+interface Staple {
+  key: string;           // PURCHASABLE_MAP key
+  displayName: string;
+  unit: string;
+  price: number;         // pre-state-multiplier
+  calsPerPkg: number;
+  calsPerDollar: number;
+  category: "protein" | "carb" | "produce";
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -189,6 +201,147 @@ function categorizeIngredient(key: string): "protein" | "carb" | "produce" {
   return "produce";
 }
 
+// ── Staples-First Strategy ────────────────────────────────────────────────────
+// When calorieDensityScore > 40, the plan pivots to a staples-first grocery
+// strategy: identify the highest calorie-per-dollar ingredients the user can buy,
+// calculate how much of each to purchase to hit the weekly calorie target, then
+// constrain the meal pool to meals that actually use those ingredients.
+
+// Dietary-flag membership for PURCHASABLE_MAP keys that could be staples.
+const STAPLE_FLAGS: Record<string, DietaryFlag[]> = {
+  "chicken breast":         ["meat"], "grilled chicken breast": ["meat"],
+  "cooked chicken breast":  ["meat"], "ground beef":             ["meat"],
+  "ground turkey":          ["meat"], "sirloin steak":           ["meat"],
+  "deli turkey":            ["meat"], "sliced turkey breast":    ["meat"],
+  "deli ham":               ["meat"], "ham":                     ["meat"],
+  "bacon strips":           ["meat", "pork"], "bacon":           ["meat", "pork"],
+  "salmon fillet":          ["fish"], "smoked salmon":           ["fish"],
+  "canned tuna":            ["fish"], "tuna":                    ["fish"],
+  "medium shrimp":          ["fish"], "shrimp":                  ["fish"],
+  "large eggs":             ["eggs"], "egg":                     ["eggs"],
+  "large egg":              ["eggs"], "egg whites":              ["eggs"],
+  "plain greek yogurt":     ["dairy"], "greek yogurt":           ["dairy"],
+  "milk":                   ["dairy"], "2% milk":                ["dairy"],
+  "pasta":                  ["gluten"], "rolled oats":            ["gluten"],
+  "whole wheat bread":      ["gluten"],
+};
+
+// Returns the top-N PURCHASABLE_MAP ingredients by calories-per-dollar,
+// filtered for dietary restrictions, deduplicated by (price, unit), and —
+// for protein-heavy goals — guaranteed to include at least one animal protein.
+function identifyTopStaples(goal: string, diets: string[], allergies: string[]): Staple[] {
+  const excludedFlags = new Set<DietaryFlag>();
+  for (const diet of diets) {
+    for (const flag of EXCLUDED_FLAGS[diet] ?? []) excludedFlags.add(flag);
+  }
+  const allergyRoots = allergies.map((a) => a.toLowerCase().trim().replace(/s$/i, ""));
+
+  const seen = new Set<string>(); // deduplicate by "price-unit"
+  const candidates: Staple[] = [];
+
+  for (const [key, def] of Object.entries(PURCHASABLE_MAP)) {
+    if (!def.calsPerPkg) continue;
+    const dedupeId = `${def.price}-${def.unit}`;
+    if (seen.has(dedupeId)) continue;
+    seen.add(dedupeId);
+    const flags = STAPLE_FLAGS[key] ?? [];
+    if (flags.some((f) => excludedFlags.has(f))) continue;
+    if (allergyRoots.some((r) => key.includes(r))) continue;
+
+    candidates.push({
+      key,
+      displayName: key.replace(/\b\w/g, (c) => c.toUpperCase()),
+      unit: def.unit,
+      price: def.price,
+      calsPerPkg: def.calsPerPkg,
+      calsPerDollar: def.calsPerPkg / def.price,
+      category: categorizeIngredient(key),
+    });
+  }
+
+  candidates.sort((a, b) => b.calsPerDollar - a.calsPerDollar);
+
+  const TOP_N = 6;
+  let top = candidates.slice(0, TOP_N);
+
+  // For protein-forward goals, ensure an animal protein appears in the list.
+  const wantsAnimalProtein =
+    (goal === "muscle_gain" || goal === "general_health") &&
+    !excludedFlags.has("eggs") &&
+    !excludedFlags.has("meat");
+  if (wantsAnimalProtein) {
+    const ANIMAL_KEYS = ["large eggs", "egg whites", "chicken breast", "ground turkey", "canned tuna"];
+    if (!top.some((s) => ANIMAL_KEYS.includes(s.key))) {
+      const best = candidates.find((s) => ANIMAL_KEYS.includes(s.key));
+      if (best) top = [...top.slice(0, TOP_N - 1), best];
+    }
+  }
+
+  return top;
+}
+
+// Returns true when at least one of the meal's non-pantry ingredients resolves
+// to the same retail product as one of the provided staples (matched by price+unit
+// so that "Cooked Brown Rice" → normalizeKey → "brown rice" → lookupPurchasable
+// → $2.99/bag matches the "brown rice" staple correctly).
+function mealUsesAnyStaple(meal: Meal, staples: Staple[]): boolean {
+  for (const ing of meal.ingredients) {
+    const key = normalizeKey(ing.item);
+    if (isPantryStaple(key)) continue;
+    const def = lookupPurchasable(key);
+    if (!def) continue;
+    if (staples.some((s) => Math.abs(s.price - def.price) < 0.01 && s.unit === def.unit)) return true;
+  }
+  return false;
+}
+
+// Builds a grocery list by purchasing bulk quantities of each staple to cover
+// an equal share of the weekly calorie target, capped by the per-staple budget
+// allocation.  This is the displayed cart for high calorie-density plans.
+function buildStaplesGroceryList(
+  staples: Staple[],
+  weeklyBudget: number,
+  weeklyCalTarget: number,
+  stateMultiplier: number
+): WeeklyCartSummary {
+  if (staples.length === 0) return { items: [], totalCost: 0 };
+
+  const budgetPerStaple = weeklyBudget / staples.length;
+  const calPerStaple    = weeklyCalTarget / staples.length;
+  const items: CartItem[] = [];
+
+  for (const staple of staples) {
+    const pricePerUnit = +(staple.price * stateMultiplier).toFixed(2);
+    if (pricePerUnit <= 0) continue;
+
+    const byCalNeed  = Math.ceil(calPerStaple / staple.calsPerPkg);
+    const byBudget   = Math.max(1, Math.floor(budgetPerStaple / pricePerUnit));
+    const packages   = Math.max(1, Math.min(byCalNeed, byBudget));
+    const totalCost  = +(pricePerUnit * packages).toFixed(2);
+
+    // Simple pluralisation: "box (16 oz)" → "boxes (16 oz)"
+    const label = packages === 1
+      ? `1 ${staple.unit}`
+      : `${packages} ${staple.unit.replace(/^([a-z]+)/i, (w) => {
+          if (w.endsWith("ch")) return w + "es";
+          if (w.endsWith("x"))  return w + "es";
+          return w + "s";
+        })}`;
+
+    items.push({
+      key: staple.key,
+      displayName: staple.displayName,
+      category: staple.category,
+      packages,
+      purchaseLabel: label,
+      pricePerUnit,
+      totalCost,
+    });
+  }
+
+  return { items, totalCost: +items.reduce((s, i) => s + i.totalCost, 0).toFixed(2) };
+}
+
 // ── Pool Builder ──────────────────────────────────────────────────────────────
 // calorieDensityScore = calorieTarget / weeklyBudget (daily cal per weekly dollar).
 // > 40: high pressure — open all tiers, keep only the top-60% by cal/$ so the
@@ -205,7 +358,8 @@ function buildPool(
   rng: () => number,
   budgetTier: 1 | 2 | 3,
   dislikedIds: Set<string>,
-  calorieDensityScore: number
+  calorieDensityScore: number,
+  topStaples: Staple[]
 ): Meal[] {
   // Effective tier ceiling after calorie-density adjustment
   let effectiveTier: 1 | 2 | 3 = budgetTier;
@@ -246,6 +400,15 @@ function buildPool(
   if (calorieDensityScore > 40) {
     const byCpd = [...pool].sort((a, b) => (b.caloriesPerDollar ?? 0) - (a.caloriesPerDollar ?? 0));
     pool = byCpd.slice(0, Math.max(7, Math.ceil(byCpd.length * 0.6)));
+  }
+
+  // Staples-first: further constrain to meals that use at least one of the
+  // identified bulk staples.  This ensures the 7-day meal plan is built around
+  // what was bulk-purchased rather than introducing new expensive ingredients.
+  if (topStaples.length > 0) {
+    const byStaple = pool.filter((m) => mealUsesAnyStaple(m, topStaples));
+    // Only apply if the filtered pool is still large enough to avoid repetition
+    if (byStaple.length >= 7) pool = byStaple;
   }
 
   // Sort by goal score once, then shuffle for variety.
@@ -403,6 +566,15 @@ export function generatePlan(
   const calorieDensityScore = (calorieTarget ?? 2000) / Math.max(1, perPersonBudget);
   console.log(`[generatePlan] calorieDensityScore=${calorieDensityScore.toFixed(1)} (calorieTarget=${calorieTarget ?? 2000}, perPersonBudget=$${perPersonBudget})`);
 
+  // Identify bulk staples for high-pressure plans BEFORE building pools so that
+  // both the pool filter and the grocery list builder use the same staple set.
+  const topStaples = calorieDensityScore > 40
+    ? identifyTopStaples(goal, diets, allergies)
+    : [];
+  if (topStaples.length > 0) {
+    console.log(`[generatePlan] staples-first mode — top staples: [${topStaples.map((s) => `${s.key} (${s.calsPerDollar.toFixed(0)} cal/$)`).join(", ")}]`);
+  }
+
   // Step 2: Seed deterministically so the same inputs always produce the same plan,
   // but planSalt (generated fresh per session on the client) ensures two users
   // with identical stats see different meals.
@@ -419,10 +591,10 @@ export function generatePlan(
   // calorieDensityScore adjusts the effective tier ceiling and applies a cal/$ filter
   // when calorie pressure is high. Each pool is sorted by goal score once, then
   // shuffled — variety is guaranteed by consuming the pool in order across the 7-day template.
-  const bPool = buildPool("breakfast", diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
-  const lPool = buildPool("lunch",     diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
-  const dPool = buildPool("dinner",    diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
-  const sPool = buildPool("snack",     diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
+  const bPool = buildPool("breakfast", diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore, topStaples);
+  const lPool = buildPool("lunch",     diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore, topStaples);
+  const dPool = buildPool("dinner",    diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore, topStaples);
+  const sPool = buildPool("snack",     diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore, topStaples);
   console.log(`[generatePlan] Pool sizes after filtering — breakfast: ${bPool.length}, lunch: ${lPool.length}, dinner: ${dPool.length}, snack: ${sPool.length} (budgetTier=${budgetTier}, diets=[${diets.join(",")}], allergies=[${allergies.join(",")}])`);
   if (bPool.length < 7 || lPool.length < 7 || dPool.length < 7 || sPool.length < 7) {
     console.warn(`[generatePlan] One or more pools have fewer than 7 unique meals — some meals will repeat within the week.`);
@@ -601,8 +773,15 @@ export function generatePlan(
     week1Days.reduce((s, d) => s + d.dailyProtein, 0) / week1Days.length
   );
 
-  // Step 7: Generate grocery list from the selected week 1 meals.
-  const weeklyCart = buildGroceryFromMeals(week1Days, stateMultiplier);
+  // Step 7: Generate grocery list.
+  // High calorie-density plans use a staples-first strategy: calculate how many
+  // packages of each bulk staple to buy to hit the weekly calorie target within
+  // budget, rather than aggregating individual recipe ingredients.  This mirrors
+  // how a smart budget shopper actually operates — buy staples in bulk first,
+  // then build meals around what you bought.
+  const weeklyCart = calorieDensityScore > 40 && calorieTarget && topStaples.length > 0
+    ? buildStaplesGroceryList(topStaples, perPersonBudget, calorieTarget * 7, stateMultiplier)
+    : buildGroceryFromMeals(week1Days, stateMultiplier);
   const weeklyEstimatedCost = weeklyCart.totalCost;
   const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
 
