@@ -29,7 +29,13 @@
       "Bash(grep -n \"^  {$\\\\|\\\\\"id\\\\\":\\\\|\\\\\"type\\\\\":\\\\|budgetTier:\" /Users/tshibles/macro-planner/app/data/meals.ts)",
       "Bash(awk -F': ' '{print $2}')",
       "Bash(sort -k2 -n)",
-      "Bash(awk '{print $2, $4}')"
+      "Bash(awk '{print $2, $4}')",
+      "Bash(git push *)",
+      "Bash(npm list *)",
+      "Bash(npx vercel *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('compilerOptions',{}\\), indent=2\\)\\)\")",
+      "Bash(npx tsx *)",
+      "Bash(git *)"
     ]
   }
 }

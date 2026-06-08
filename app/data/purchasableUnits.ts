@@ -58,6 +58,12 @@ export const PANTRY_STAPLES = new Set([
   "oat flour",
   "baking powder",
   "baking soda",
+  // Common flavor bases — appear in almost every savory or sweet recipe
+  // normalizeKey("Garlic, minced") → "garlic"; "garlic cloves" → "garlic clove"
+  "garlic",
+  "garlic clove",
+  // Honey is used as a sweetener in small amounts across most recipes
+  "honey",
   // Condiments & sauces
   "soy sauce",
   "hot sauce",
