@@ -190,6 +190,12 @@ function categorizeIngredient(key: string): "protein" | "carb" | "produce" {
 }
 
 // ── Pool Builder ──────────────────────────────────────────────────────────────
+// calorieDensityScore = calorieTarget / weeklyBudget (daily cal per weekly dollar).
+// > 40: high pressure — open all tiers, keep only the top-60% by cal/$ so the
+//       plan maximises calories-per-dollar for users who need every cheap calorie.
+// < 25: low pressure  — bump the tier ceiling up by 1 to unlock variety meals
+//       for users whose TDEE is easy to hit even on modest budgets.
+// 25-40: normal — use the base budget tier as-is.
 
 function buildPool(
   type: Meal["type"],
@@ -198,23 +204,32 @@ function buildPool(
   goal: string,
   rng: () => number,
   budgetTier: 1 | 2 | 3,
-  dislikedIds: Set<string>
+  dislikedIds: Set<string>,
+  calorieDensityScore: number
 ): Meal[] {
+  // Effective tier ceiling after calorie-density adjustment
+  let effectiveTier: 1 | 2 | 3 = budgetTier;
+  if (calorieDensityScore > 40) {
+    effectiveTier = 3; // include all tiers; cal/$ filter applied below
+  } else if (calorieDensityScore < 25 && budgetTier < 3) {
+    effectiveTier = (budgetTier + 1) as 1 | 2 | 3;
+  }
+
   const eligible = meals.filter((m) => {
     if (m.type !== type) return false;
-    if (m.budgetTier > budgetTier) return false;
+    if (m.budgetTier > effectiveTier) return false;
     if (!isAllowed(m, diets)) return false;
     if (hasAllergen(m, allergies)) return false;
     if (dislikedIds.has(m.id)) return false;
     return true;
   });
 
-  // Fallback: if pool is too small, relax budget tier by one level to expand options.
+  // Fallback: if pool is too small, relax budget tier by one level.
   let pool = eligible;
   if (eligible.length < 3) {
-    const relaxedTier = Math.min(budgetTier + 1, 3) as 1 | 2 | 3;
+    const relaxedTier = Math.min(effectiveTier + 1, 3) as 1 | 2 | 3;
     console.warn(
-      `[generatePlan] ${type} pool has only ${eligible.length} meal(s) after filtering; relaxing budget tier ${budgetTier} → ${relaxedTier}`
+      `[generatePlan] ${type} pool has only ${eligible.length} meal(s) after filtering; relaxing budget tier ${effectiveTier} → ${relaxedTier}`
     );
     pool = meals.filter(
       (m) =>
@@ -226,12 +241,18 @@ function buildPool(
     );
   }
 
-  // Sort by goal score once (pre-filter), then shuffle the entire pool so
-  // each day gets a different meal without any per-day re-scoring.
+  // High calorie-density: restrict to the most calorie-efficient meals (top 60%, min 7).
+  // Tier-3 premiums naturally drop out because they have poor cal/$ ratios.
+  if (calorieDensityScore > 40) {
+    const byCpd = [...pool].sort((a, b) => (b.caloriesPerDollar ?? 0) - (a.caloriesPerDollar ?? 0));
+    pool = byCpd.slice(0, Math.max(7, Math.ceil(byCpd.length * 0.6)));
+  }
+
+  // Sort by goal score once, then shuffle for variety.
   const sorted = [...pool].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
   const shuffled = shuffle(sorted, rng);
   console.log(
-    `[generatePlan] ${type} shuffled pool (${shuffled.length}): [${shuffled.map((m) => m.name).join(" | ")}]`
+    `[generatePlan] ${type} shuffled pool (${shuffled.length}) [cds=${calorieDensityScore.toFixed(1)},tier=${effectiveTier}]: [${shuffled.map((m) => m.name).join(" | ")}]`
   );
   return shuffled;
 }
@@ -375,6 +396,13 @@ export function generatePlan(
   const perPersonBudget = budget / Math.max(1, numberOfPeople);
   const budgetTier = determineBudgetTier(perPersonBudget);
 
+  // calorieDensityScore = daily calorie target / weekly per-person budget.
+  // Captures how many calories per weekly dollar the user needs.
+  // > 40: tight budget relative to calorie needs → maximise cal/$ (bulk staples).
+  // < 25: easy budget relative to calorie needs → unlock variety (higher-tier meals).
+  const calorieDensityScore = (calorieTarget ?? 2000) / Math.max(1, perPersonBudget);
+  console.log(`[generatePlan] calorieDensityScore=${calorieDensityScore.toFixed(1)} (calorieTarget=${calorieTarget ?? 2000}, perPersonBudget=$${perPersonBudget})`);
+
   // Step 2: Seed deterministically so the same inputs always produce the same plan,
   // but planSalt (generated fresh per session on the client) ensures two users
   // with identical stats see different meals.
@@ -388,12 +416,13 @@ export function generatePlan(
   const rng = seededRng(seed);
 
   // Step 3: Build meal pools filtered by budget tier, dietary rules, and allergens.
-  // Each pool is sorted by goal score once, then shuffled — variety is guaranteed by
-  // consuming the shuffled pool in order (index-based) across the 7-day template.
-  const bPool = buildPool("breakfast", diets, allergies, goal, rng, budgetTier, dislikedSet);
-  const lPool = buildPool("lunch",     diets, allergies, goal, rng, budgetTier, dislikedSet);
-  const dPool = buildPool("dinner",    diets, allergies, goal, rng, budgetTier, dislikedSet);
-  const sPool = buildPool("snack",     diets, allergies, goal, rng, budgetTier, dislikedSet);
+  // calorieDensityScore adjusts the effective tier ceiling and applies a cal/$ filter
+  // when calorie pressure is high. Each pool is sorted by goal score once, then
+  // shuffled — variety is guaranteed by consuming the pool in order across the 7-day template.
+  const bPool = buildPool("breakfast", diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
+  const lPool = buildPool("lunch",     diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
+  const dPool = buildPool("dinner",    diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
+  const sPool = buildPool("snack",     diets, allergies, goal, rng, budgetTier, dislikedSet, calorieDensityScore);
   console.log(`[generatePlan] Pool sizes after filtering — breakfast: ${bPool.length}, lunch: ${lPool.length}, dinner: ${dPool.length}, snack: ${sPool.length} (budgetTier=${budgetTier}, diets=[${diets.join(",")}], allergies=[${allergies.join(",")}])`);
   if (bPool.length < 7 || lPool.length < 7 || dPool.length < 7 || sPool.length < 7) {
     console.warn(`[generatePlan] One or more pools have fewer than 7 unique meals — some meals will repeat within the week.`);

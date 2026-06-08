@@ -14,6 +14,7 @@ export interface Meal {
   carbs: number;
   fat: number;
   cost: number;
+  caloriesPerDollar: number;
   type: MealType;
   contains: DietaryFlag[];
   ingredients: Ingredient[];
@@ -39,6 +40,7 @@ export const meals: Meal[] = [
     carbs: 31,
     fat: 18,
     cost: 1.55,
+    caloriesPerDollar: 239,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -69,6 +71,7 @@ export const meals: Meal[] = [
     carbs: 58,
     fat: 13,
     cost: 0.90,
+    caloriesPerDollar: 433,
     type: "breakfast",
     contains: ["gluten"],
     ingredients: [
@@ -93,11 +96,12 @@ export const meals: Meal[] = [
   {
     id: "b3",
     name: "Santorini Sunrise Yogurt Bowl",
-    calories: 280,
-    protein: 20,
-    carbs: 36,
-    fat: 4,
+    calories: 420,
+    protein: 30,
+    carbs: 54,
+    fat: 6,
     cost: 1.10,
+    caloriesPerDollar: 382,
     type: "breakfast",
     contains: ["dairy", "gluten"],
     ingredients: [
@@ -120,11 +124,12 @@ export const meals: Meal[] = [
   {
     id: "b4",
     name: "Aegean Sunrise Omelette",
-    calories: 290,
-    protein: 20,
-    carbs: 10,
-    fat: 18,
+    calories: 400,
+    protein: 28,
+    carbs: 14,
+    fat: 25,
     cost: 1.55,
+    caloriesPerDollar: 258,
     type: "breakfast",
     contains: ["eggs"],
     ingredients: [
@@ -155,6 +160,7 @@ export const meals: Meal[] = [
     carbs: 58,
     fat: 8,
     cost: 1.05,
+    caloriesPerDollar: 343,
     type: "breakfast",
     contains: ["dairy", "gluten"],
     ingredients: [
@@ -179,11 +185,12 @@ export const meals: Meal[] = [
   {
     id: "b6",
     name: "Calabrian Fire Scramble",
-    calories: 310,
-    protein: 22,
-    carbs: 8,
-    fat: 18,
+    calories: 420,
+    protein: 30,
+    carbs: 11,
+    fat: 24,
     cost: 1.45,
+    caloriesPerDollar: 290,
     type: "breakfast",
     contains: ["eggs"],
     ingredients: [
@@ -209,11 +216,12 @@ export const meals: Meal[] = [
   {
     id: "b7",
     name: "Tokyo Morning Savory Oat Bowl",
-    calories: 340,
-    protein: 18,
-    carbs: 38,
-    fat: 12,
+    calories: 430,
+    protein: 23,
+    carbs: 48,
+    fat: 15,
     cost: 1.20,
+    caloriesPerDollar: 358,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -244,6 +252,7 @@ export const meals: Meal[] = [
     carbs: 44,
     fat: 14,
     cost: 0.90,
+    caloriesPerDollar: 389,
     type: "breakfast",
     contains: ["gluten"],
     ingredients: [
@@ -265,11 +274,12 @@ export const meals: Meal[] = [
   {
     id: "b9",
     name: "Huevos Ranchero Scramble",
-    calories: 320,
-    protein: 22,
-    carbs: 12,
-    fat: 18,
+    calories: 430,
+    protein: 30,
+    carbs: 16,
+    fat: 24,
     cost: 1.50,
+    caloriesPerDollar: 287,
     type: "breakfast",
     contains: ["eggs"],
     ingredients: [
@@ -296,11 +306,12 @@ export const meals: Meal[] = [
   {
     id: "b10",
     name: "Athenian Honey Crunch Bowl",
-    calories: 260,
-    protein: 18,
-    carbs: 34,
-    fat: 3,
+    calories: 380,
+    protein: 26,
+    carbs: 50,
+    fat: 4,
     cost: 1.05,
+    caloriesPerDollar: 362,
     type: "breakfast",
     contains: ["dairy", "gluten"],
     ingredients: [
@@ -328,6 +339,7 @@ export const meals: Meal[] = [
     carbs: 52,
     fat: 12,
     cost: 1.20,
+    caloriesPerDollar: 317,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -352,11 +364,12 @@ export const meals: Meal[] = [
   {
     id: "b12",
     name: "Caprese Fried Eggs on Toast",
-    calories: 340,
-    protein: 20,
-    carbs: 30,
-    fat: 16,
+    calories: 430,
+    protein: 25,
+    carbs: 38,
+    fat: 20,
     cost: 1.45,
+    caloriesPerDollar: 297,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -382,11 +395,12 @@ export const meals: Meal[] = [
   {
     id: "b13",
     name: "Aegean Bliss Smoothie Bowl",
-    calories: 290,
-    protein: 18,
-    carbs: 42,
-    fat: 4,
+    calories: 420,
+    protein: 26,
+    carbs: 61,
+    fat: 6,
     cost: 1.10,
+    caloriesPerDollar: 382,
     type: "breakfast",
     contains: ["dairy", "gluten"],
     ingredients: [
@@ -415,6 +429,7 @@ export const meals: Meal[] = [
     carbs: 32,
     fat: 16,
     cost: 1.50,
+    caloriesPerDollar: 233,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -439,11 +454,12 @@ export const meals: Meal[] = [
   {
     id: "b15",
     name: "Cinnamon Spice Banana Porridge",
-    calories: 320,
-    protein: 8,
-    carbs: 60,
-    fat: 5,
+    calories: 420,
+    protein: 10,
+    carbs: 79,
+    fat: 7,
     cost: 0.75,
+    caloriesPerDollar: 560,
     type: "breakfast",
     contains: ["gluten"],
     ingredients: [
@@ -467,11 +483,12 @@ export const meals: Meal[] = [
   {
     id: "b16",
     name: "Smoked Poblano & Paprika Egg Scramble",
-    calories: 280,
-    protein: 20,
-    carbs: 8,
-    fat: 16,
+    calories: 400,
+    protein: 29,
+    carbs: 11,
+    fat: 23,
     cost: 1.30,
+    caloriesPerDollar: 308,
     type: "breakfast",
     contains: ["eggs"],
     ingredients: [
@@ -501,6 +518,7 @@ export const meals: Meal[] = [
     carbs: 42,
     fat: 10,
     cost: 1.45,
+    caloriesPerDollar: 255,
     type: "breakfast",
     contains: ["dairy"],
     ingredients: [
@@ -523,11 +541,12 @@ export const meals: Meal[] = [
   {
     id: "b18",
     name: "Florentine Egg White Scramble",
-    calories: 200,
-    protein: 22,
-    carbs: 4,
-    fat: 6,
+    calories: 360,
+    protein: 40,
+    carbs: 7,
+    fat: 11,
     cost: 1.20,
+    caloriesPerDollar: 300,
     type: "breakfast",
     contains: ["eggs"],
     ingredients: [
@@ -558,6 +577,7 @@ export const meals: Meal[] = [
     carbs: 40,
     fat: 12,
     cost: 1.30,
+    caloriesPerDollar: 269,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -583,11 +603,12 @@ export const meals: Meal[] = [
   {
     id: "b20",
     name: "Coconut-Cinnamon Cold Oat Bowl",
-    calories: 300,
-    protein: 10,
-    carbs: 54,
-    fat: 6,
+    calories: 430,
+    protein: 14,
+    carbs: 77,
+    fat: 9,
     cost: 0.80,
+    caloriesPerDollar: 538,
     type: "breakfast",
     contains: ["dairy", "gluten"],
     ingredients: [
@@ -612,11 +633,12 @@ export const meals: Meal[] = [
   {
     id: "b21",
     name: "Large PB Banana Oatmeal",
-    calories: 700,
-    protein: 22,
-    carbs: 98,
-    fat: 22,
+    calories: 490,
+    protein: 15,
+    carbs: 69,
+    fat: 15,
     cost: 1.90,
+    caloriesPerDollar: 258,
     type: "breakfast",
     contains: ["gluten"],
     ingredients: [
@@ -639,11 +661,12 @@ export const meals: Meal[] = [
   {
     id: "b22",
     name: "High-Protein Egg & Oat Scramble",
-    calories: 600,
-    protein: 32,
-    carbs: 54,
-    fat: 24,
+    calories: 490,
+    protein: 26,
+    carbs: 44,
+    fat: 20,
     cost: 2.20,
+    caloriesPerDollar: 223,
     type: "breakfast",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -673,6 +696,7 @@ export const meals: Meal[] = [
     carbs: 56,
     fat: 10,
     cost: 2.90,
+    caloriesPerDollar: 186,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -703,6 +727,7 @@ export const meals: Meal[] = [
     carbs: 58,
     fat: 19,
     cost: 2.85,
+    caloriesPerDollar: 214,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -735,6 +760,7 @@ export const meals: Meal[] = [
     carbs: 54,
     fat: 12,
     cost: 3.35,
+    caloriesPerDollar: 182,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -761,11 +787,12 @@ export const meals: Meal[] = [
   {
     id: "l4",
     name: "Niçoise-Herb Tuna Sandwich",
-    calories: 390,
-    protein: 30,
-    carbs: 38,
-    fat: 10,
+    calories: 560,
+    protein: 43,
+    carbs: 55,
+    fat: 14,
     cost: 2.20,
+    caloriesPerDollar: 255,
     type: "lunch",
     contains: ["fish", "gluten"],
     ingredients: [
@@ -797,6 +824,7 @@ export const meals: Meal[] = [
     carbs: 58,
     fat: 19,
     cost: 2.65,
+    caloriesPerDollar: 219,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -828,6 +856,7 @@ export const meals: Meal[] = [
     carbs: 52,
     fat: 10,
     cost: 2.80,
+    caloriesPerDollar: 186,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -854,11 +883,12 @@ export const meals: Meal[] = [
   {
     id: "l7",
     name: "Korean-Spiced Tuna & Spinach Rice Bowl",
-    calories: 420,
-    protein: 34,
-    carbs: 50,
-    fat: 8,
+    calories: 550,
+    protein: 45,
+    carbs: 66,
+    fat: 10,
     cost: 2.00,
+    caloriesPerDollar: 275,
     type: "lunch",
     contains: ["fish", "gluten"],
     ingredients: [
@@ -889,6 +919,7 @@ export const meals: Meal[] = [
     carbs: 46,
     fat: 19,
     cost: 3.25,
+    caloriesPerDollar: 175,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -916,11 +947,12 @@ export const meals: Meal[] = [
   {
     id: "l9",
     name: "Wok-Charred Ginger Soy Fried Rice",
-    calories: 450,
-    protein: 18,
-    carbs: 64,
-    fat: 12,
+    calories: 570,
+    protein: 23,
+    carbs: 81,
+    fat: 15,
     cost: 1.60,
+    caloriesPerDollar: 356,
     type: "lunch",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -946,11 +978,12 @@ export const meals: Meal[] = [
   {
     id: "l10",
     name: "Mediterranean Herb Tuna Pasta",
-    calories: 430,
-    protein: 30,
-    carbs: 52,
-    fat: 10,
+    calories: 560,
+    protein: 39,
+    carbs: 68,
+    fat: 13,
     cost: 2.10,
+    caloriesPerDollar: 267,
     type: "lunch",
     contains: ["fish", "gluten"],
     ingredients: [
@@ -983,6 +1016,7 @@ export const meals: Meal[] = [
     carbs: 54,
     fat: 12,
     cost: 3.00,
+    caloriesPerDollar: 183,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -1015,6 +1049,7 @@ export const meals: Meal[] = [
     carbs: 48,
     fat: 21,
     cost: 2.75,
+    caloriesPerDollar: 204,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -1042,11 +1077,12 @@ export const meals: Meal[] = [
   {
     id: "l13",
     name: "Italian Herb Tuna Bruschetta Toast",
-    calories: 380,
-    protein: 30,
-    carbs: 34,
-    fat: 12,
+    calories: 530,
+    protein: 42,
+    carbs: 47,
+    fat: 17,
     cost: 2.00,
+    caloriesPerDollar: 265,
     type: "lunch",
     contains: ["fish", "gluten"],
     ingredients: [
@@ -1078,6 +1114,7 @@ export const meals: Meal[] = [
     carbs: 52,
     fat: 10,
     cost: 3.00,
+    caloriesPerDollar: 180,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -1110,6 +1147,7 @@ export const meals: Meal[] = [
     carbs: 52,
     fat: 17,
     cost: 2.75,
+    caloriesPerDollar: 207,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1136,11 +1174,12 @@ export const meals: Meal[] = [
   {
     id: "l16",
     name: "Smoky BBQ Cowboy Hash",
-    calories: 440,
-    protein: 20,
-    carbs: 48,
-    fat: 18,
+    calories: 580,
+    protein: 26,
+    carbs: 63,
+    fat: 24,
     cost: 1.90,
+    caloriesPerDollar: 305,
     type: "lunch",
     contains: ["eggs"],
     ingredients: [
@@ -1172,6 +1211,7 @@ export const meals: Meal[] = [
     carbs: 54,
     fat: 14,
     cost: 3.35,
+    caloriesPerDollar: 179,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1198,11 +1238,12 @@ export const meals: Meal[] = [
   {
     id: "l18",
     name: "Sesame-Soy Tuna & Broccoli Power Bowl",
-    calories: 380,
-    protein: 32,
-    carbs: 38,
-    fat: 8,
+    calories: 540,
+    protein: 45,
+    carbs: 54,
+    fat: 11,
     cost: 2.10,
+    caloriesPerDollar: 257,
     type: "lunch",
     contains: ["fish", "gluten"],
     ingredients: [
@@ -1233,6 +1274,7 @@ export const meals: Meal[] = [
     carbs: 52,
     fat: 19,
     cost: 2.75,
+    caloriesPerDollar: 204,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -1260,11 +1302,12 @@ export const meals: Meal[] = [
   {
     id: "l20",
     name: "Patatas Bravas Egg Bowl",
-    calories: 460,
-    protein: 22,
-    carbs: 52,
-    fat: 18,
+    calories: 580,
+    protein: 28,
+    carbs: 65,
+    fat: 23,
     cost: 1.90,
+    caloriesPerDollar: 305,
     type: "lunch",
     contains: ["eggs"],
     ingredients: [
@@ -1293,11 +1336,12 @@ export const meals: Meal[] = [
   {
     id: "l21",
     name: "Double Chicken Rice Bowl",
-    calories: 760,
-    protein: 65,
-    carbs: 82,
-    fat: 16,
+    calories: 670,
+    protein: 57,
+    carbs: 72,
+    fat: 14,
     cost: 4.20,
+    caloriesPerDollar: 160,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1321,11 +1365,12 @@ export const meals: Meal[] = [
   {
     id: "l22",
     name: "Hearty Turkey Pasta Bowl",
-    calories: 720,
-    protein: 50,
-    carbs: 78,
-    fat: 20,
+    calories: 660,
+    protein: 46,
+    carbs: 72,
+    fat: 18,
     cost: 3.70,
+    caloriesPerDollar: 178,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1352,11 +1397,12 @@ export const meals: Meal[] = [
   {
     id: "d1",
     name: "Harissa-Spiced Baked Chicken with Rice & Broccoli",
-    calories: 540,
-    protein: 48,
-    carbs: 56,
-    fat: 10,
+    calories: 720,
+    protein: 64,
+    carbs: 74,
+    fat: 13,
     cost: 3.10,
+    caloriesPerDollar: 232,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1383,11 +1429,12 @@ export const meals: Meal[] = [
   {
     id: "d2",
     name: "Calabrian Turkey Bolognese",
-    calories: 625,
-    protein: 44,
-    carbs: 72,
-    fat: 17,
+    calories: 760,
+    protein: 54,
+    carbs: 88,
+    fat: 21,
     cost: 3.05,
+    caloriesPerDollar: 249,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1415,11 +1462,12 @@ export const meals: Meal[] = [
   {
     id: "d3",
     name: "Greek Lemon-Oregano Sheet Pan Chicken & Potatoes",
-    calories: 570,
-    protein: 46,
-    carbs: 48,
-    fat: 14,
+    calories: 720,
+    protein: 58,
+    carbs: 61,
+    fat: 18,
     cost: 3.20,
+    caloriesPerDollar: 225,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1446,11 +1494,12 @@ export const meals: Meal[] = [
   {
     id: "d4",
     name: "Szechuan-Style Chicken & Vegetable Stir-Fry",
-    calories: 530,
-    protein: 46,
-    carbs: 56,
-    fat: 12,
+    calories: 700,
+    protein: 61,
+    carbs: 74,
+    fat: 16,
     cost: 3.10,
+    caloriesPerDollar: 226,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1478,11 +1527,12 @@ export const meals: Meal[] = [
   {
     id: "d5",
     name: "Ancho & Charred Pepper Turkey Rice Bowl",
-    calories: 605,
-    protein: 44,
-    carbs: 64,
-    fat: 17,
+    calories: 740,
+    protein: 54,
+    carbs: 78,
+    fat: 21,
     cost: 2.95,
+    caloriesPerDollar: 251,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1511,11 +1561,12 @@ export const meals: Meal[] = [
   {
     id: "d6",
     name: "Greek Taverna Roasted Chicken & Potatoes",
-    calories: 550,
-    protein: 46,
-    carbs: 48,
-    fat: 14,
+    calories: 720,
+    protein: 60,
+    carbs: 63,
+    fat: 18,
     cost: 3.20,
+    caloriesPerDollar: 225,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1543,11 +1594,12 @@ export const meals: Meal[] = [
   {
     id: "d7",
     name: "Fiesta Chipotle Turkey-Stuffed Peppers",
-    calories: 575,
-    protein: 46,
-    carbs: 52,
-    fat: 17,
+    calories: 720,
+    protein: 58,
+    carbs: 65,
+    fat: 21,
     cost: 3.25,
+    caloriesPerDollar: 222,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1576,11 +1628,12 @@ export const meals: Meal[] = [
   {
     id: "d8",
     name: "Sicilian Chicken Primavera",
-    calories: 610,
-    protein: 50,
-    carbs: 64,
-    fat: 14,
+    calories: 760,
+    protein: 62,
+    carbs: 80,
+    fat: 17,
     cost: 3.50,
+    caloriesPerDollar: 217,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1609,11 +1662,12 @@ export const meals: Meal[] = [
   {
     id: "d9",
     name: "Caramelized Ginger-Honey Teriyaki Chicken Bowl",
-    calories: 540,
-    protein: 46,
-    carbs: 58,
-    fat: 10,
+    calories: 710,
+    protein: 60,
+    carbs: 76,
+    fat: 13,
     cost: 3.10,
+    caloriesPerDollar: 229,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1639,11 +1693,12 @@ export const meals: Meal[] = [
   {
     id: "d10",
     name: "Smoky BBQ Cowboy Turkey Skillet",
-    calories: 555,
-    protein: 42,
-    carbs: 52,
-    fat: 19,
+    calories: 720,
+    protein: 55,
+    carbs: 68,
+    fat: 25,
     cost: 3.05,
+    caloriesPerDollar: 236,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1671,11 +1726,12 @@ export const meals: Meal[] = [
   {
     id: "d11",
     name: "Tuscan Garlic Chicken & Spinach Pasta",
-    calories: 610,
-    protein: 52,
-    carbs: 62,
-    fat: 14,
+    calories: 780,
+    protein: 67,
+    carbs: 79,
+    fat: 18,
     cost: 3.30,
+    caloriesPerDollar: 236,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1703,11 +1759,12 @@ export const meals: Meal[] = [
   {
     id: "d12",
     name: "Black Pepper & Ginger Turkey Broccoli Bowl",
-    calories: 545,
-    protein: 44,
-    carbs: 52,
-    fat: 17,
+    calories: 710,
+    protein: 57,
+    carbs: 68,
+    fat: 22,
     cost: 2.85,
+    caloriesPerDollar: 249,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1735,11 +1792,12 @@ export const meals: Meal[] = [
   {
     id: "d13",
     name: "Street-Style Sizzling Chicken Fajita Bowl",
-    calories: 550,
-    protein: 44,
-    carbs: 56,
-    fat: 14,
+    calories: 720,
+    protein: 58,
+    carbs: 73,
+    fat: 18,
     cost: 3.20,
+    caloriesPerDollar: 225,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1768,11 +1826,12 @@ export const meals: Meal[] = [
   {
     id: "d14",
     name: "BBQ Chipotle Loaded Baked Potato",
-    calories: 575,
-    protein: 46,
-    carbs: 58,
-    fat: 17,
+    calories: 730,
+    protein: 58,
+    carbs: 74,
+    fat: 22,
     cost: 3.15,
+    caloriesPerDollar: 232,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1801,11 +1860,12 @@ export const meals: Meal[] = [
   {
     id: "d15",
     name: "Fra Diavolo Chicken Pasta",
-    calories: 560,
-    protein: 44,
-    carbs: 64,
-    fat: 12,
+    calories: 730,
+    protein: 57,
+    carbs: 83,
+    fat: 16,
     cost: 3.10,
+    caloriesPerDollar: 235,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1832,11 +1892,12 @@ export const meals: Meal[] = [
   {
     id: "d16",
     name: "Sunday Gravy Turkey Meatballs & Pasta",
-    calories: 635,
-    protein: 48,
-    carbs: 72,
-    fat: 19,
+    calories: 780,
+    protein: 59,
+    carbs: 89,
+    fat: 23,
     cost: 3.25,
+    caloriesPerDollar: 240,
     type: "dinner",
     contains: ["meat", "eggs", "gluten"],
     ingredients: [
@@ -1864,11 +1925,12 @@ export const meals: Meal[] = [
   {
     id: "d17",
     name: "Basque-Style Pepper & Potato Frittata",
-    calories: 480,
-    protein: 28,
-    carbs: 36,
-    fat: 26,
+    calories: 680,
+    protein: 40,
+    carbs: 51,
+    fat: 37,
     cost: 2.30,
+    caloriesPerDollar: 296,
     type: "dinner",
     contains: ["eggs"],
     ingredients: [
@@ -1896,11 +1958,12 @@ export const meals: Meal[] = [
   {
     id: "d18",
     name: "Andalusian Smoked Chicken with Tomato Rice",
-    calories: 530,
-    protein: 46,
-    carbs: 56,
-    fat: 12,
+    calories: 700,
+    protein: 61,
+    carbs: 74,
+    fat: 16,
     cost: 3.00,
+    caloriesPerDollar: 233,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1928,11 +1991,12 @@ export const meals: Meal[] = [
   {
     id: "d19",
     name: "Ginger-Scallion Turkey & Broccoli Rice Bowl",
-    calories: 555,
-    protein: 44,
-    carbs: 58,
-    fat: 15,
+    calories: 720,
+    protein: 57,
+    carbs: 75,
+    fat: 20,
     cost: 2.95,
+    caloriesPerDollar: 244,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -1959,11 +2023,12 @@ export const meals: Meal[] = [
   {
     id: "d20",
     name: "Provençal Herb-Roasted Chicken & Vegetables",
-    calories: 560,
-    protein: 46,
-    carbs: 46,
-    fat: 16,
+    calories: 730,
+    protein: 60,
+    carbs: 60,
+    fat: 21,
     cost: 3.30,
+    caloriesPerDollar: 221,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -1999,6 +2064,7 @@ export const meals: Meal[] = [
     carbs: 92,
     fat: 22,
     cost: 4.80,
+    caloriesPerDollar: 188,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -2027,6 +2093,7 @@ export const meals: Meal[] = [
     carbs: 96,
     fat: 22,
     cost: 4.00,
+    caloriesPerDollar: 210,
     type: "dinner",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -2059,6 +2126,7 @@ export const meals: Meal[] = [
     carbs: 30,
     fat: 1,
     cost: 1.05,
+    caloriesPerDollar: 190,
     type: "snack",
     contains: ["dairy"],
     ingredients: [
@@ -2081,6 +2149,7 @@ export const meals: Meal[] = [
     carbs: 1,
     fat: 11,
     cost: 0.60,
+    caloriesPerDollar: 258,
     type: "snack",
     contains: ["eggs"],
     ingredients: [
@@ -2103,6 +2172,7 @@ export const meals: Meal[] = [
     carbs: 38,
     fat: 12,
     cost: 0.85,
+    caloriesPerDollar: 329,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2127,6 +2197,7 @@ export const meals: Meal[] = [
     carbs: 22,
     fat: 6,
     cost: 1.70,
+    caloriesPerDollar: 141,
     type: "snack",
     contains: ["fish", "gluten"],
     ingredients: [
@@ -2147,11 +2218,12 @@ export const meals: Meal[] = [
   {
     id: "s5",
     name: "Greek Yogurt with Honey",
-    calories: 140,
-    protein: 17,
-    carbs: 16,
+    calories: 170,
+    protein: 20,
+    carbs: 22,
     fat: 0,
     cost: 0.95,
+    caloriesPerDollar: 179,
     type: "snack",
     contains: ["dairy"],
     ingredients: [
@@ -2174,6 +2246,7 @@ export const meals: Meal[] = [
     carbs: 28,
     fat: 10,
     cost: 0.80,
+    caloriesPerDollar: 288,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2199,6 +2272,7 @@ export const meals: Meal[] = [
     carbs: 2,
     fat: 10,
     cost: 0.90,
+    caloriesPerDollar: 167,
     type: "snack",
     contains: ["eggs"],
     ingredients: [
@@ -2223,6 +2297,7 @@ export const meals: Meal[] = [
     carbs: 34,
     fat: 10,
     cost: 0.50,
+    caloriesPerDollar: 440,
     type: "snack",
     contains: [],
     ingredients: [
@@ -2244,6 +2319,7 @@ export const meals: Meal[] = [
     carbs: 36,
     fat: 2,
     cost: 1.05,
+    caloriesPerDollar: 229,
     type: "snack",
     contains: ["dairy"],
     ingredients: [
@@ -2268,6 +2344,7 @@ export const meals: Meal[] = [
     carbs: 6,
     fat: 4,
     cost: 1.50,
+    caloriesPerDollar: 113,
     type: "snack",
     contains: ["fish"],
     ingredients: [
@@ -2292,6 +2369,7 @@ export const meals: Meal[] = [
     carbs: 30,
     fat: 9,
     cost: 0.70,
+    caloriesPerDollar: 314,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2316,6 +2394,7 @@ export const meals: Meal[] = [
     carbs: 6,
     fat: 12,
     cost: 1.00,
+    caloriesPerDollar: 190,
     type: "snack",
     contains: ["eggs"],
     ingredients: [
@@ -2341,6 +2420,7 @@ export const meals: Meal[] = [
     carbs: 36,
     fat: 3,
     cost: 1.20,
+    caloriesPerDollar: 217,
     type: "snack",
     contains: ["dairy", "gluten"],
     ingredients: [
@@ -2365,6 +2445,7 @@ export const meals: Meal[] = [
     carbs: 40,
     fat: 3,
     cost: 0.60,
+    caloriesPerDollar: 350,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2389,6 +2470,7 @@ export const meals: Meal[] = [
     carbs: 6,
     fat: 4,
     cost: 1.60,
+    caloriesPerDollar: 100,
     type: "snack",
     contains: ["fish"],
     ingredients: [
@@ -2413,6 +2495,7 @@ export const meals: Meal[] = [
     carbs: 28,
     fat: 2,
     cost: 1.00,
+    caloriesPerDollar: 180,
     type: "snack",
     contains: ["dairy"],
     ingredients: [
@@ -2437,6 +2520,7 @@ export const meals: Meal[] = [
     carbs: 40,
     fat: 10,
     cost: 0.80,
+    caloriesPerDollar: 325,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2455,11 +2539,12 @@ export const meals: Meal[] = [
   {
     id: "s18",
     name: "Greek Yogurt with Banana & PB",
-    calories: 310,
-    protein: 20,
-    carbs: 36,
-    fat: 8,
+    calories: 280,
+    protein: 18,
+    carbs: 32,
+    fat: 7,
     cost: 1.30,
+    caloriesPerDollar: 215,
     type: "snack",
     contains: ["dairy"],
     ingredients: [
@@ -2484,6 +2569,7 @@ export const meals: Meal[] = [
     carbs: 4,
     fat: 10,
     cost: 0.80,
+    caloriesPerDollar: 200,
     type: "snack",
     contains: ["eggs"],
     ingredients: [
@@ -2503,11 +2589,12 @@ export const meals: Meal[] = [
   {
     id: "s21",
     name: "High-Calorie Protein Stack",
-    calories: 490,
-    protein: 29,
-    carbs: 44,
-    fat: 20,
+    calories: 270,
+    protein: 16,
+    carbs: 24,
+    fat: 11,
     cost: 1.75,
+    caloriesPerDollar: 154,
     type: "snack",
     contains: ["dairy"],
     ingredients: [
@@ -2528,11 +2615,12 @@ export const meals: Meal[] = [
   {
     id: "s22",
     name: "PB Power Oat Bowl",
-    calories: 520,
-    protein: 18,
-    carbs: 76,
-    fat: 20,
+    calories: 270,
+    protein: 9,
+    carbs: 40,
+    fat: 10,
     cost: 1.50,
+    caloriesPerDollar: 180,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2560,6 +2648,7 @@ export const meals: Meal[] = [
     carbs: 22,
     fat: 10,
     cost: 1.00,
+    caloriesPerDollar: 230,
     type: "snack",
     contains: ["eggs", "gluten"],
     ingredients: [
@@ -2587,11 +2676,12 @@ export const meals: Meal[] = [
   {
     id: "b23",
     name: "Budget Oatmeal with PB & Banana",
-    calories: 600,
-    protein: 19,
-    carbs: 88,
-    fat: 21,
+    calories: 490,
+    protein: 16,
+    carbs: 72,
+    fat: 17,
     cost: 0.60,
+    caloriesPerDollar: 817,
     type: "breakfast",
     contains: ["gluten"],
     ingredients: [
@@ -2618,6 +2708,7 @@ export const meals: Meal[] = [
     carbs: 60,
     fat: 18,
     cost: 0.70,
+    caloriesPerDollar: 786,
     type: "breakfast",
     contains: ["eggs"],
     ingredients: [
@@ -2641,11 +2732,12 @@ export const meals: Meal[] = [
   {
     id: "l23",
     name: "Budget Pasta with Ground Turkey",
-    calories: 860,
-    protein: 51,
-    carbs: 80,
-    fat: 31,
+    calories: 660,
+    protein: 39,
+    carbs: 61,
+    fat: 24,
     cost: 1.40,
+    caloriesPerDollar: 471,
     type: "lunch",
     contains: ["meat", "gluten"],
     ingredients: [
@@ -2674,6 +2766,7 @@ export const meals: Meal[] = [
     carbs: 90,
     fat: 23,
     cost: 1.35,
+    caloriesPerDollar: 585,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -2698,11 +2791,12 @@ export const meals: Meal[] = [
   {
     id: "s23",
     name: "Budget PB&J on Whole Wheat",
-    calories: 450,
-    protein: 15,
-    carbs: 58,
-    fat: 18,
+    calories: 270,
+    protein: 9,
+    carbs: 35,
+    fat: 11,
     cost: 0.50,
+    caloriesPerDollar: 540,
     type: "snack",
     contains: ["gluten"],
     ingredients: [
@@ -2733,6 +2827,7 @@ export const meals: Meal[] = [
     carbs: 22,
     fat: 32,
     cost: 4.20,
+    caloriesPerDollar: 124,
     type: "breakfast",
     contains: ["fish", "eggs", "gluten"],
     ingredients: [
@@ -2763,6 +2858,7 @@ export const meals: Meal[] = [
     carbs: 54,
     fat: 22,
     cost: 3.80,
+    caloriesPerDollar: 137,
     type: "breakfast",
     contains: [],
     ingredients: [
@@ -2793,6 +2889,7 @@ export const meals: Meal[] = [
     carbs: 26,
     fat: 22,
     cost: 4.40,
+    caloriesPerDollar: 111,
     type: "breakfast",
     contains: ["fish", "eggs"],
     ingredients: [
@@ -2824,6 +2921,7 @@ export const meals: Meal[] = [
     carbs: 8,
     fat: 28,
     cost: 4.80,
+    caloriesPerDollar: 98,
     type: "breakfast",
     contains: ["fish", "eggs"],
     ingredients: [
@@ -2856,6 +2954,7 @@ export const meals: Meal[] = [
     carbs: 56,
     fat: 20,
     cost: 6.20,
+    caloriesPerDollar: 97,
     type: "lunch",
     contains: ["fish"],
     ingredients: [
@@ -2889,6 +2988,7 @@ export const meals: Meal[] = [
     carbs: 54,
     fat: 18,
     cost: 5.80,
+    caloriesPerDollar: 98,
     type: "lunch",
     contains: ["fish"],
     ingredients: [
@@ -2919,6 +3019,7 @@ export const meals: Meal[] = [
     carbs: 46,
     fat: 30,
     cost: 8.00,
+    caloriesPerDollar: 81,
     type: "lunch",
     contains: ["meat"],
     ingredients: [
@@ -2951,6 +3052,7 @@ export const meals: Meal[] = [
     carbs: 44,
     fat: 22,
     cost: 6.00,
+    caloriesPerDollar: 97,
     type: "lunch",
     contains: ["fish", "dairy"],
     ingredients: [
@@ -2983,6 +3085,7 @@ export const meals: Meal[] = [
     carbs: 70,
     fat: 22,
     cost: 4.20,
+    caloriesPerDollar: 138,
     type: "lunch",
     contains: [],
     ingredients: [
@@ -3011,11 +3114,12 @@ export const meals: Meal[] = [
   {
     id: "d24",
     name: "Provençal Pan-Seared Salmon with Quinoa & Roasted Asparagus",
-    calories: 610,
-    protein: 50,
-    carbs: 44,
-    fat: 26,
+    calories: 760,
+    protein: 62,
+    carbs: 55,
+    fat: 32,
     cost: 6.80,
+    caloriesPerDollar: 112,
     type: "dinner",
     contains: ["fish"],
     ingredients: [
@@ -3047,6 +3151,7 @@ export const meals: Meal[] = [
     carbs: 56,
     fat: 28,
     cost: 7.50,
+    caloriesPerDollar: 93,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -3075,11 +3180,12 @@ export const meals: Meal[] = [
   {
     id: "d26",
     name: "Wok-Blazed Sesame-Ginger Shrimp Stir-Fry",
-    calories: 540,
-    protein: 46,
-    carbs: 62,
-    fat: 14,
+    calories: 720,
+    protein: 61,
+    carbs: 83,
+    fat: 19,
     cost: 5.80,
+    caloriesPerDollar: 124,
     type: "dinner",
     contains: ["fish"],
     ingredients: [
@@ -3107,11 +3213,12 @@ export const meals: Meal[] = [
   {
     id: "d27",
     name: "Smoky BBQ-Glazed Salmon with Roasted Sweet Potato & Broccoli",
-    calories: 600,
-    protein: 46,
-    carbs: 52,
-    fat: 26,
+    calories: 760,
+    protein: 58,
+    carbs: 66,
+    fat: 33,
     cost: 6.50,
+    caloriesPerDollar: 117,
     type: "dinner",
     contains: ["fish"],
     ingredients: [
@@ -3138,11 +3245,12 @@ export const meals: Meal[] = [
   {
     id: "d28",
     name: "Calabrian Herb-Crusted Steak with Roasted Potatoes & Spinach",
-    calories: 640,
-    protein: 50,
-    carbs: 54,
-    fat: 26,
+    calories: 780,
+    protein: 61,
+    carbs: 66,
+    fat: 32,
     cost: 8.00,
+    caloriesPerDollar: 98,
     type: "dinner",
     contains: ["meat"],
     ingredients: [
@@ -3175,6 +3283,7 @@ export const meals: Meal[] = [
     carbs: 22,
     fat: 14,
     cost: 3.80,
+    caloriesPerDollar: 71,
     type: "snack",
     contains: ["fish"],
     ingredients: [
@@ -3203,6 +3312,7 @@ export const meals: Meal[] = [
     carbs: 18,
     fat: 14,
     cost: 2.20,
+    caloriesPerDollar: 109,
     type: "snack",
     contains: [],
     ingredients: [
@@ -3225,11 +3335,12 @@ export const meals: Meal[] = [
   {
     id: "s26",
     name: "Baja Chilled Shrimp & Avocado Cups",
-    calories: 340,
-    protein: 28,
-    carbs: 32,
-    fat: 14,
+    calories: 280,
+    protein: 23,
+    carbs: 26,
+    fat: 11,
     cost: 4.00,
+    caloriesPerDollar: 70,
     type: "snack",
     contains: ["fish"],
     ingredients: [
@@ -3253,11 +3364,12 @@ export const meals: Meal[] = [
   {
     id: "s27",
     name: "Mediterranean Avocado & Quinoa Bowl",
-    calories: 380,
-    protein: 10,
-    carbs: 34,
-    fat: 26,
+    calories: 280,
+    protein: 7,
+    carbs: 25,
+    fat: 19,
     cost: 3.80,
+    caloriesPerDollar: 74,
     type: "snack",
     contains: [],
     ingredients: [
