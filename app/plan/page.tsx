@@ -495,6 +495,7 @@ function PlanContent() {
         totalDays: tier.days,
         stateCode: stateParam,
         calorieTarget,
+        weightLbs: weightParam ? parseFloat(weightParam) : undefined,
         planSalt: Math.floor(Math.random() * 0x7fffffff),
       }),
     })
