@@ -59,12 +59,15 @@ export default function Home() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/meal-plans/saved").then((r) => r.json()),
+      fetch("/api/meal-plans/saved").then((r) => r.json()).catch(() => ({ plan: null })),
       fetch("/api/free-trial/status").then((r) => r.json()).catch(() => ({ used: false })),
       fetch("/api/subscriptions/status").then((r) => r.json()).catch(() => ({ unlocked: false })),
     ])
       .then(([{ plan }, statusData, subscription]) => {
-        if (plan) {
+        // Any returning user with an active subscription (paid or the 7-day
+        // trial row) AND a saved plan goes straight back to their plan. An
+        // expired subscription falls through to the form instead.
+        if (plan && subscription.unlocked) {
           const savedDiets: string[] = plan.diets ?? (plan.diet ? [plan.diet] : []);
           const p = new URLSearchParams({
             budget: String(plan.budget),

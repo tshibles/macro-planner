@@ -600,9 +600,9 @@ function PlanContent() {
 
   // One salt per generated plan. Read from the URL when present (so the plan
   // and grocery pages render the exact same generation); otherwise pick one
-  // and thread it through every link/redirect this page builds. For paid
-  // users a saved salt from meal_plans overrides this so they get the exact
-  // same plan back on every visit.
+  // and thread it through every link/redirect this page builds. For users
+  // with a saved meal_plans row (paid or free trial) the saved salt overrides
+  // this so they get the exact same plan back on every visit.
   const [planSalt, setPlanSalt] = useState(() =>
     saltParam ? parseInt(saltParam, 10) : Math.floor(Math.random() * 0x7fffffff)
   );
@@ -640,9 +640,12 @@ function PlanContent() {
   const [swapTarget, setSwapTarget] = useState<{ dayIndex: number; slot: MealType; current: Meal } | null>(null);
   const [swapLoading, setSwapLoading] = useState(false);
 
-  // Resolve the saved meal_plans row: free users get redirected to their saved
-  // params if the URL doesn't match; paid users reuse their saved plan salt
-  // (or persist the fresh one). Ratings initialize from the saved row.
+  // Resolve the saved meal_plans row: anyone with a saved row (paid or free
+  // trial) reuses its plan_salt so every return visit regenerates the exact
+  // same plan; if the row has no salt yet (fresh paid plan or a just-created
+  // trial row) this generation's salt is persisted. Free users also get
+  // redirected to their saved params if the URL doesn't match. Ratings
+  // initialize from the saved row.
   useEffect(() => {
     fetch("/api/meal-plans/saved")
       .then((r) => r.json())
@@ -654,30 +657,26 @@ function PlanContent() {
           setRatings(initial);
         }
 
-        if (!isFree) {
-          if (plan && plan.plan_salt != null) {
-            setPlanSalt(plan.plan_salt);
-          } else {
-            // First generation for this paid plan — persist the salt.
-            fetch("/api/meal-plans/salt", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                salt: planSalt,
-                budget: String(budget),
-                goal,
-                diets: selectedDiets,
-                tier: tierParam,
-                targetWeight: targetWeightParam || null,
-                goalTimeframe: goalTimeframeParam || null,
-              }),
-            }).catch(() => {});
-          }
-          setResolving(false);
-          return;
+        const savedSalt: number | null = plan?.plan_salt ?? null;
+        if (savedSalt != null) {
+          setPlanSalt(savedSalt);
+        } else if (plan || !isFree) {
+          fetch("/api/meal-plans/salt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              salt: planSalt,
+              budget: String(budget),
+              goal,
+              diets: selectedDiets,
+              tier: tierParam,
+              targetWeight: targetWeightParam || null,
+              goalTimeframe: goalTimeframeParam || null,
+            }),
+          }).catch(() => {});
         }
 
-        if (!plan) {
+        if (!isFree || !plan) {
           setResolving(false);
           return;
         }
@@ -716,8 +715,11 @@ function PlanContent() {
         if (goalTimeframeParam) current.set("goalTimeframe", goalTimeframeParam);
 
         if (saved.toString() !== current.toString()) {
-          saved.set("salt", String(planSalt));
-          router.replace(`/plan?${saved.toString()}`);
+          saved.set("salt", String(savedSalt ?? planSalt));
+          // Hard navigation: a soft replace keeps this component mounted, so
+          // this mount-only effect would never re-run and the page would be
+          // stuck on the resolving spinner with stale params.
+          window.location.replace(`/plan?${saved.toString()}`);
         } else {
           setResolving(false);
         }
