@@ -915,12 +915,16 @@ function selectDayMeals(
 // option would push the day's protein well outside the target band (the
 // catalog has no low-protein dinners, so strict no-repeat weeks are forced
 // onto the protein-dense tail by midweek). Meals served in earlier weeks
-// carry a smaller penalty so fresh-this-month meals win ties.
+// carry a smaller penalty so fresh-this-month meals win ties. A salt-seeded
+// jitter perturbs each candidate's score so different salts compose different
+// days — without it the argmin is pool-order-independent and every salt
+// converges on the same plan, breaking regenerate/adjust-preferences.
 
 const RATIO_SLOT_ORDER: MealKey[] = ["dinner", "lunch", "breakfast", "snack"];
 const CROSS_WEEK_PENALTY = 0.015;      // ratio-deviation units
 const INTRA_WEEK_REUSE_PENALTY = 0.015; // per prior serving this week
 const CAL_FLOOR_WEIGHT = 0.5;          // penalty per fraction of calorie-floor shortfall
+const SALT_JITTER = 0.01;              // max salt-seeded noise, ratio-deviation units
 
 function selectDayMealsForRatio(
   pools: Record<MealKey, Meal[]>,
@@ -928,7 +932,8 @@ function selectDayMealsForRatio(
   usedAcrossWeeks: Set<string>,
   targetRatio: number,
   dailyCalTarget: number | null,
-  dayLabel: string
+  dayLabel: string,
+  rng: () => number
 ): Record<MealKey, Meal> {
   const means = {} as Record<MealKey, { cal: number; prot: number }>;
   for (const slot of RATIO_SLOT_ORDER) {
@@ -951,6 +956,10 @@ function selectDayMealsForRatio(
     // Portions cap at 2× — a day whose base calories fall below half the
     // calorie target can never reach it, so penalize undersized days too.
     const calFloor = dailyCalTarget ? dailyCalTarget / 2 : 0;
+    // Jitter fades to zero by the last slot: early picks carry the salt's
+    // divergence (each cascades through every later projection), while the
+    // final pick stays purely corrective so the day still lands on target.
+    const jitterScale = (RATIO_SLOT_ORDER.length - 1 - i) / (RATIO_SLOT_ORDER.length - 1);
     let best = pools[slot][0], bestScore = Infinity;
     for (const m of pools[slot]) {
       const projCals = cals + m.calories + expCal;
@@ -959,7 +968,8 @@ function selectDayMealsForRatio(
         Math.abs(ratio - targetRatio) +
         (used.get(m.id) ?? 0) * INTRA_WEEK_REUSE_PENALTY +
         (!used.has(m.id) && usedAcrossWeeks.has(m.id) ? CROSS_WEEK_PENALTY : 0) +
-        (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0);
+        (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0) +
+        rng() * SALT_JITTER * jitterScale;
       if (score < bestScore - 1e-9) { best = m; bestScore = score; }
     }
     used.set(best.id, (used.get(best.id) ?? 0) + 1);
@@ -1129,7 +1139,7 @@ export function generatePlan(
     const { breakfast, lunch, dinner, snack } = targetProteinRatio
       ? selectDayMealsForRatio(
           { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
-          week1Used, new Set(), targetProteinRatio, calorieTarget ?? null, DAY_NAMES[i % 7])
+          week1Used, new Set(), targetProteinRatio, calorieTarget ?? null, DAY_NAMES[i % 7], rng)
       : selectDayMeals(bPool, lPool, dPool, sPool, usedTracker, DAY_NAMES[i % 7]);
     week1Days.push({
       day: DAY_NAMES[i % 7],
@@ -1237,7 +1247,7 @@ export function generatePlan(
       const { breakfast, lunch, dinner, snack } = targetProteinRatio
         ? selectDayMealsForRatio(
             { breakfast: wbPool, lunch: wlPool, dinner: wdPool, snack: wsPool },
-            weekUsed, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, `wk${w + 1} ${DAY_NAMES[i]}`)
+            weekUsed, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, `wk${w + 1} ${DAY_NAMES[i]}`, weekRng)
         : selectDayMeals(wbPool, wlPool, wdPool, wsPool, weekTracker, `wk${w + 1} ${DAY_NAMES[i]}`);
       weekDays.push({
         day: DAY_NAMES[i],
