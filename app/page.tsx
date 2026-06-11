@@ -61,8 +61,9 @@ export default function Home() {
     Promise.all([
       fetch("/api/meal-plans/saved").then((r) => r.json()),
       fetch("/api/free-trial/status").then((r) => r.json()).catch(() => ({ used: false })),
+      fetch("/api/subscriptions/status").then((r) => r.json()).catch(() => ({ unlocked: false })),
     ])
-      .then(([{ plan }, statusData]) => {
+      .then(([{ plan }, statusData, subscription]) => {
         if (plan) {
           const savedDiets: string[] = plan.diets ?? (plan.diet ? [plan.diet] : []);
           const p = new URLSearchParams({
@@ -82,6 +83,12 @@ export default function Home() {
           if (plan.target_weight) p.set("targetWeight", String(plan.target_weight));
           if (plan.goal_timeframe_weeks) p.set("goalTimeframe", String(plan.goal_timeframe_weeks));
           router.replace(`/plan?${p.toString()}`);
+          return;
+        }
+        if (subscription.unlocked) {
+          // Active subscription (incl. the 7-day free-trial row) but no saved
+          // plan — don't gate on free_trial_used; let them generate freely.
+          setTrialCheckDone(true);
           return;
         }
         const used = statusData.used ?? false;
