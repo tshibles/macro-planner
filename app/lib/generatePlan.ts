@@ -606,7 +606,8 @@ function buildFinalPool(
   diets: string[],
   allergies: string[],
   dislikedIds: Set<string>,
-  rng: () => number
+  rng: () => number,
+  usedAcrossWeeks: Set<string> = new Set()
 ): PoolResult {
   const baseFilter = (m: Meal) =>
     m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
@@ -636,7 +637,13 @@ function buildFinalPool(
   }
 
   console.log(`[generatePlan] ${type} pool: ${pool.length} meals (from cart)`);
-  return { pool: shuffle(pool, rng), starved: pool.length < 7, usedSafetyNet, dietRelaxed };
+  // Meals served in earlier weeks move to the back of the pool — deprioritized,
+  // not excluded, since the catalog (~28 meals/slot) can't fill a month repeat-free.
+  const shuffled = shuffle(pool, rng);
+  const ordered = usedAcrossWeeks.size === 0
+    ? shuffled
+    : [...shuffled.filter((m) => !usedAcrossWeeks.has(m.id)), ...shuffled.filter((m) => usedAcrossWeeks.has(m.id))];
+  return { pool: ordered, starved: pool.length < 7, usedSafetyNet, dietRelaxed };
 }
 
 // ── Grocery List Builder (kept for internal use) ───────────────────────────────
@@ -706,6 +713,27 @@ function balanceDailyCalories(week: DayMeals[]): void {
     recomputeDayTotals(week[maxIdx]);
     recomputeDayTotals(week[minIdx]);
   }
+}
+
+// ── Portion Scaler ────────────────────────────────────────────────────────────
+// Scales each day's portions toward the calorie target, capped at 0.5×–2× per
+// meal. Returns true if any day hit the cap (and may sit short of the target).
+
+function scaleWeekToCalorieTarget(week: DayMeals[], calorieTarget: number): boolean {
+  let capped = false;
+  for (const day of week) {
+    const baseTotal = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+    const raw = calorieTarget / Math.max(baseTotal, 1);
+    const multiplier = Math.min(2.0, Math.max(0.5, raw));
+    if (raw > 2.0 || raw < 0.5) capped = true;
+
+    day.breakfast = scaleMeal(day.breakfast, multiplier);
+    day.lunch     = scaleMeal(day.lunch,     multiplier);
+    day.dinner    = scaleMeal(day.dinner,    multiplier);
+    day.snack     = scaleMeal(day.snack,     multiplier);
+    recomputeDayTotals(day);
+  }
+  return capped;
 }
 
 // ── Day Meal Selector ─────────────────────────────────────────────────────────
@@ -893,26 +921,7 @@ export function generatePlan(
   }
 
   // ── Step 8: Scale portions to hit the daily calorie target ────────────────────
-  let portionCapped = false;
-  if (calorieTarget) {
-    for (const day of week1Days) {
-      const baseTotal = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
-      const raw = calorieTarget / Math.max(baseTotal, 1);
-      const multiplier = Math.min(2.0, Math.max(0.5, raw));
-      if (raw > 2.0 || raw < 0.5) portionCapped = true;
-
-      day.breakfast = scaleMeal(day.breakfast, multiplier);
-      day.lunch     = scaleMeal(day.lunch,     multiplier);
-      day.dinner    = scaleMeal(day.dinner,     multiplier);
-      day.snack     = scaleMeal(day.snack,      multiplier);
-
-      day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
-      day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
-      day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
-      day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
-      day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
-    }
-  }
+  const portionCapped = calorieTarget ? scaleWeekToCalorieTarget(week1Days, calorieTarget) : false;
 
   if (portionCapped && budgetCapMessage === undefined && calorieTarget) {
     const avgCal = Math.round(week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length);
@@ -965,15 +974,60 @@ export function generatePlan(
     }
   }
 
-  // ── Step 10: Expand to full plan length ──────────────────────────────────────
-  const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
-    if (i < week1Days.length) return week1Days[i];
-    return { ...week1Days[i % 7], day: DAY_NAMES[i % 7], date: formatDate(i), dayIndex: i, weekIndex: Math.floor(i / 7) };
-  });
+  // ── Step 10: Generate remaining weeks (seeded planSalt + weekIndex) ──────────
+  // Each later week re-runs pool building and meal selection against the SAME
+  // cart as week 1 (same budget, same purchases — the user shops the same list
+  // weekly) but with a week-specific seed, so the shuffle prioritizes different
+  // meals. Meals served in earlier weeks are deprioritized (moved to the back of
+  // the pool), not excluded — the catalog (~28 meals/slot) can't fill a month
+  // repeat-free. Determinism: planSalt + weekIndex always yields the same week.
+  const days: DayMeals[] = [...week1Days];
+  const usedAcrossWeeks = new Set<string>();
+  for (const day of week1Days) {
+    for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
+  }
+
+  for (let w = 1; w < numWeeks; w++) {
+    const weekSeed = (Math.round(budget * 100) + goalIndex * 1000 + dietHash + stateIdx + planSalt + w) >>> 0;
+    const weekRng = seededRng(weekSeed);
+    const wbPool = buildFinalPool("breakfast", cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
+    const wlPool = buildFinalPool("lunch",     cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
+    const wdPool = buildFinalPool("dinner",    cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
+    const wsPool = buildFinalPool("snack",     cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
+
+    const weekDays: DayMeals[] = [];
+    const weekTracker = freshUsedTracker();
+    const weekLength = Math.min(totalDays - w * 7, 7);
+    for (let i = 0; i < weekLength; i++) {
+      const dayIndex = w * 7 + i;
+      const { breakfast, lunch, dinner, snack } =
+        selectDayMeals(wbPool, wlPool, wdPool, wsPool, weekTracker, `wk${w + 1} ${DAY_NAMES[i]}`);
+      weekDays.push({
+        day: DAY_NAMES[i],
+        date: formatDate(dayIndex),
+        weekIndex: w,
+        dayIndex,
+        breakfast, lunch, dinner, snack,
+        dailyCalories: breakfast.calories + lunch.calories + dinner.calories + snack.calories,
+        dailyProtein:  breakfast.protein  + lunch.protein  + dinner.protein  + snack.protein,
+        dailyCarbs:    breakfast.carbs    + lunch.carbs    + dinner.carbs    + snack.carbs,
+        dailyFat:      breakfast.fat      + lunch.fat      + dinner.fat      + snack.fat,
+        dailyCost:     +(breakfast.cost   + lunch.cost     + dinner.cost     + snack.cost).toFixed(2),
+      });
+    }
+
+    balanceDailyCalories(weekDays);
+    if (calorieTarget) scaleWeekToCalorieTarget(weekDays, calorieTarget);
+    for (const day of weekDays) {
+      for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
+    }
+    days.push(...weekDays);
+  }
+
   const weeks: DayMeals[][] = Array.from({ length: numWeeks }, (_, w) => days.slice(w * 7, w * 7 + 7));
 
-  const avgDailyCalories = Math.round(week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length);
-  const avgDailyProtein  = Math.round(week1Days.reduce((s, d) => s + d.dailyProtein,  0) / week1Days.length);
+  const avgDailyCalories = Math.round(days.reduce((s, d) => s + d.dailyCalories, 0) / days.length);
+  const avgDailyProtein  = Math.round(days.reduce((s, d) => s + d.dailyProtein,  0) / days.length);
 
   // ── Step 11: Return the pruned cart as weeklyCart ─────────────────────────────
   const weeklyCart: WeeklyCartSummary = {
