@@ -59,12 +59,15 @@ export async function POST(req: Request) {
 
   const { error: subError } = await adminClient()
     .from("subscriptions")
-    .insert({
-      user_id: user.id,
-      plan_tier: "free",
-      plan_expires_at: expiresAt,
-      stripe_session_id: `free-trial-${user.id}`,
-    });
+    .upsert(
+      {
+        user_id: user.id,
+        plan_tier: "free",
+        plan_expires_at: expiresAt,
+        stripe_session_id: `free-trial-${user.id}`,
+      },
+      { onConflict: "stripe_session_id" }
+    );
 
   if (subError) {
     return NextResponse.json(

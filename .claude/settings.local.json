@@ -36,7 +36,8 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('compilerOptions',{}\\), indent=2\\)\\)\")",
       "Bash(npx tsx *)",
       "Bash(git *)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(grep -rln \"create table\\\\|CREATE TABLE\" /Users/tshibles/macro-planner --include=\"*.sql\" --include=\"*.md\" -not -path \"*/node_modules/*\")"
     ]
   }
 }
