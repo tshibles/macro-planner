@@ -661,6 +661,7 @@ function PlanContent() {
         if (savedSalt != null) {
           setPlanSalt(savedSalt);
         } else if (plan || !isFree) {
+          console.log("[plan] persisting salt", planSalt);
           fetch("/api/meal-plans/salt", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -673,7 +674,15 @@ function PlanContent() {
               targetWeight: targetWeightParam || null,
               goalTimeframe: goalTimeframeParam || null,
             }),
-          }).catch(() => {});
+          })
+            .then((r) => {
+              if (!r.ok) console.error("[plan] salt persist failed:", r.status);
+            })
+            .catch((e) => console.error("[plan] salt persist failed:", e));
+        } else {
+          // plan == null on a free tier: either no saved row exists yet or the
+          // /saved fetch errored — salt is intentionally not persisted here.
+          console.log("[plan] salt persist skipped (no saved row, free tier)");
         }
 
         if (!isFree || !plan) {

@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
   const dietsArr: string[] = Array.isArray(diets) ? diets : [];
 
-  await supabase.from("meal_plans").upsert(
+  const { error } = await supabase.from("meal_plans").upsert(
     {
       user_id: user.id,
       budget: parseFloat(String(budget || 50)),
@@ -36,6 +36,11 @@ export async function POST(req: Request) {
     },
     { onConflict: "user_id" }
   );
+
+  if (error) {
+    console.error("[meal-plans/salt] upsert failed:", error.code, error.message);
+    return NextResponse.json({ error: "Failed to persist salt" }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }

@@ -37,7 +37,10 @@
       "Bash(npx tsx *)",
       "Bash(git *)",
       "Skill(update-config)",
-      "Bash(grep -rln \"create table\\\\|CREATE TABLE\" /Users/tshibles/macro-planner --include=\"*.sql\" --include=\"*.md\" -not -path \"*/node_modules/*\")"
+      "Bash(grep -rln \"create table\\\\|CREATE TABLE\" /Users/tshibles/macro-planner --include=\"*.sql\" --include=\"*.md\" -not -path \"*/node_modules/*\")",
+      "Bash(supabase migration *)",
+      "Bash(npx supabase *)",
+      "Bash(awk *)"
     ]
   }
 }

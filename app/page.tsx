@@ -64,10 +64,12 @@ export default function Home() {
       fetch("/api/subscriptions/status").then((r) => r.json()).catch(() => ({ unlocked: false })),
     ])
       .then(([{ plan }, statusData, subscription]) => {
+        console.log("[home] saved plan:", plan, "subscription:", subscription);
         // Any returning user with an active subscription (paid or the 7-day
         // trial row) AND a saved plan goes straight back to their plan. An
         // expired subscription falls through to the form instead.
         if (plan && subscription.unlocked) {
+          console.log("[home] redirect branch reached → /plan");
           const savedDiets: string[] = plan.diets ?? (plan.diet ? [plan.diet] : []);
           const p = new URLSearchParams({
             budget: String(plan.budget),
