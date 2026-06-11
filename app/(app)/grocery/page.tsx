@@ -4,7 +4,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import type { DayMeals, MealPlan } from "@/app/lib/generatePlan";
 import { getTierById } from "@/app/data/plans";
-import { UserButton } from "@/app/components/UserButton";
+import { buildSavedPlanParams } from "@/app/lib/savedPlanParams";
+import { resolvePostAuthDestination } from "@/app/lib/postAuth";
 import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
 import { STATE_MULTIPLIERS, STATE_NAMES } from "@/app/data/stateMultipliers";
 import { isPantryStaple } from "@/app/data/purchasableUnits";
@@ -88,7 +89,42 @@ function GroceryContent() {
   // Mirrors the meal plan page's week navigation — each week has its own cart.
   const [currentWeek, setCurrentWeek] = useState(0);
 
+  // Bare visit from the nav bar (no params, or no salt): rebuild the URL from
+  // the saved row so this page regenerates the exact same plan and cart as the
+  // plan page. Generating without the saved salt would silently produce a
+  // different cart.
+  const needsRestore = !params.get("budget") || !saltParam;
+
   useEffect(() => {
+    if (!needsRestore) return;
+    fetch("/api/meal-plans/saved")
+      .then((r) => r.json())
+      .then(async ({ plan: saved }) => {
+        if (!saved) {
+          // No saved plan: subscribed users go fill out the form; everyone
+          // else gets the same routing the AppShell gate would apply.
+          const dest = await resolvePostAuthDestination();
+          router.replace(dest === "/plan" ? "/onboarding" : dest);
+          return;
+        }
+        if (saved.plan_salt == null) {
+          // No salt persisted yet — let the plan page mint and save one first.
+          router.replace("/plan");
+          return;
+        }
+        const sub = await fetch("/api/subscriptions/status")
+          .then((r) => r.json())
+          .catch(() => ({}));
+        const tierOverride = sub?.tier ? getTierById(sub.tier).id : undefined;
+        const restored = buildSavedPlanParams(saved, tierOverride);
+        restored.set("salt", String(saved.plan_salt));
+        window.location.replace(`/grocery?${restored.toString()}`);
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (needsRestore) return;
     let cancelled = false;
     fetch("/api/generate-plan", {
       method: "POST",
@@ -175,7 +211,7 @@ function GroceryContent() {
 
   if (planLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[60vh] flex items-center justify-center">
         <div className="text-gray-400 text-sm">Building your grocery list…</div>
       </div>
     );
@@ -202,55 +238,36 @@ function GroceryContent() {
   const totalPlanCost = plan?.totalPlanCost ?? totalCost;
 
   return (
-    <main className="min-h-screen flex flex-col">
-      {/* Nav */}
-      <nav className="px-6 py-4 flex items-center justify-between border-b border-white/5 sticky top-0 bg-gray-950/90 backdrop-blur-md z-10">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push(`/plan?${buildPlanParams().toString()}`)}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-sm"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" />
-            </svg>
-            Back to plan
-          </button>
-          <div className="h-4 w-px bg-white/10" />
-          <span className="text-brand-500">⚡</span>
-          <span className="font-bold text-sm tracking-tight">Macro Planner</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-gray-600">
-            {saving ? (
-              <>
-                <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Saving…
-              </>
-            ) : saved ? (
-              <>
-                <svg className="w-3 h-3 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                </svg>
-                <span className="text-emerald-600">Saved</span>
-              </>
-            ) : null}
-          </div>
-          <UserButton />
-        </div>
-      </nav>
-
+    <main className="flex-1 flex flex-col">
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 py-10">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2">
-            Weekly{" "}
-            <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-              Grocery List
-            </span>
-          </h1>
+          <div className="flex items-start justify-between gap-4">
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2">
+              Weekly{" "}
+              <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
+                Grocery List
+              </span>
+            </h1>
+            <div className="flex items-center gap-1.5 text-xs text-gray-600 mt-2 flex-shrink-0">
+              {saving ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Saving…
+                </>
+              ) : saved ? (
+                <>
+                  <svg className="w-3 h-3 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-emerald-600">Saved</span>
+                </>
+              ) : null}
+            </div>
+          </div>
           <p className="text-sm text-gray-500 mb-3">
             {numWeeks > 1
               ? `Your shopping list for week ${currentWeek + 1} — each week's list matches that week's meals.`
@@ -440,10 +457,6 @@ function GroceryContent() {
           </button>
         </div>
       </div>
-
-      <footer className="px-6 py-4 text-center text-xs text-gray-600 border-t border-white/5">
-        © {new Date().getFullYear()} Macro Planner · Built for college students
-      </footer>
     </main>
   );
 }
@@ -451,7 +464,7 @@ function GroceryContent() {
 export default function GroceryPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[60vh] flex items-center justify-center">
         <div className="text-gray-400 text-sm">Building your grocery list…</div>
       </div>
     }>

@@ -9,6 +9,8 @@ export interface PurchasableUnitDef {
   base: BaseUnit;      // unit system used for aggregating recipe amounts
   capacity: number;    // how many base units fit in one purchasable unit
   calsPerPkg?: number; // USDA-sourced calories in one purchasable unit; set on calorie-backbone staples
+  perCup?: number;     // base units per 1 cup of the recipe measure, for non-tbsp-base items
+                       // whose recipes measure in cups (e.g. "2 cups baby spinach" → oz)
 }
 
 // ── Pantry Staples ────────────────────────────────────────────────────────────
@@ -149,16 +151,16 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "asparagus":                { unit: "bunch",        price: 2.99, base: "count", capacity: 1 },
   "zucchini":                 { unit: "zucchini",     price: 0.99, base: "count", capacity: 1 },
   "kale":                     { unit: "bunch",        price: 1.99, base: "count", capacity: 1 },
-  "baby spinach":             { unit: "bag (5 oz)",   price: 3.49, base: "oz",    capacity: 5 },
-  "spinach":                  { unit: "bag (5 oz)",   price: 3.49, base: "oz",    capacity: 5 },
+  "baby spinach":             { unit: "bag (5 oz)",   price: 3.49, base: "oz",    capacity: 5, perCup: 1 },    // 1 cup fresh spinach ≈ 1 oz
+  "spinach":                  { unit: "bag (5 oz)",   price: 3.49, base: "oz",    capacity: 5, perCup: 1 },
   "romaine lettuce":          { unit: "head",         price: 1.49, base: "count", capacity: 1 },
   "romaine or butter lettuce":{ unit: "head",         price: 1.49, base: "count", capacity: 1 },
   "cucumber":                 { unit: "cucumber",     price: 0.89, base: "count", capacity: 1 },
   "celery stalk":             { unit: "bunch",        price: 1.49, base: "count", capacity: 8 },
   "celery stalks":            { unit: "bunch",        price: 1.49, base: "count", capacity: 8 },
   "carrot":                   { unit: "bag (1 lb)",   price: 1.49, base: "count", capacity: 7 },
-  "onion":                    { unit: "onion",        price: 0.69, base: "count", capacity: 1 },
-  "red onion":                { unit: "red onion",    price: 0.99, base: "count", capacity: 1 },
+  "onion":                    { unit: "onion",        price: 0.69, base: "count", capacity: 1, perCup: 1 },    // 1 medium onion ≈ 1 cup diced
+  "red onion":                { unit: "red onion",    price: 0.99, base: "count", capacity: 1, perCup: 1 },
   "green onions":             { unit: "bunch",        price: 0.99, base: "count", capacity: 1 },
   "mushrooms":                { unit: "pkg (8 oz)",   price: 2.49, base: "oz",    capacity: 8 },
   "mixed berries":            { unit: "bag (12 oz)",  price: 3.99, base: "oz",    capacity: 12 },
@@ -210,7 +212,13 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
   "cannellini beans":         { unit: "can (15 oz)",    price: 1.29, base: "count", capacity: 1 },
   "green or brown lentils":   { unit: "bag (16 oz)",    price: 1.99, base: "oz",    capacity: 16 },
   "lentils":                  { unit: "bag (16 oz)",    price: 1.99, base: "oz",    capacity: 16,  calsPerPkg: 1600 }, // 352 kcal/100g dry × 453g
-  "diced tomatoes":           { unit: "can (14.5 oz)",  price: 1.09, base: "count", capacity: 1 },
+  // Recipes measure canned tomatoes in cups; a 14.5 oz can holds ~1.75 cups (28 tbsp).
+  // "Diced tomatoes, canned" normalizes to "tomatoes" (comma-strip + adjective-strip),
+  // so an exact "tomatoes" entry is required — without it the fuzzy lookup matches
+  // "cherry tomatoes" (longest substring) and prices a pint of fresh cherry tomatoes.
+  "diced tomatoes":           { unit: "can (14.5 oz)",  price: 1.09, base: "tbsp",  capacity: 28 },
+  "tomatoes":                 { unit: "can (14.5 oz)",  price: 1.09, base: "tbsp",  capacity: 28 },
+  "crushed tomatoes":         { unit: "can (14.5 oz)",  price: 1.09, base: "tbsp",  capacity: 28 },
   "vegetable broth":          { unit: "carton (32 oz)", price: 2.49, base: "tbsp",  capacity: 64 },
   "chicken or vegetable broth":{ unit: "carton (32 oz)",price: 2.49, base: "tbsp",  capacity: 64 },
   "chicken broth":            { unit: "carton (32 oz)", price: 2.49, base: "tbsp",  capacity: 64 },
@@ -258,8 +266,12 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
 
 // ── Amount Parsing ─────────────────────────────────────────────────────────────
 
-/** Parse a recipe amount string into a numeric value in the given base unit. */
-export function parseAmountInBase(amountStr: string, targetBase: BaseUnit): number | null {
+/**
+ * Parse a recipe amount string into a numeric value in the given base unit.
+ * `perCup` converts cup-measured amounts for non-tbsp bases (e.g. cups of
+ * spinach → oz, cups of diced onion → onions); without it those return null.
+ */
+export function parseAmountInBase(amountStr: string, targetBase: BaseUnit, perCup?: number): number | null {
   const s = amountStr.trim();
 
   // Negligible amounts — don't add to total
@@ -303,8 +315,8 @@ export function parseAmountInBase(amountStr: string, targetBase: BaseUnit): numb
 
   // Volume
   if (/cup/.test(lower)) {
-    const tbsp = num * 16;
-    return targetBase === "tbsp" ? tbsp : null;
+    if (targetBase === "tbsp") return num * 16;
+    return perCup ? num * perCup : null;
   }
   if (/\btbsp\b|\btablespoon/.test(lower)) {
     return targetBase === "tbsp" ? num : null;
@@ -411,7 +423,7 @@ export function computePurchasable(
   let totalBase = 0;
   let parsed = 0;
   for (const amt of amounts) {
-    const v = parseAmountInBase(amt, def.base);
+    const v = parseAmountInBase(amt, def.base, def.perCup);
     if (v !== null) {
       totalBase += v;
       parsed++;

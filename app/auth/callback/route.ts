@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
     if (error) {
       return NextResponse.redirect(
-        `${origin}/auth?error=${encodeURIComponent(error.message)}`
+        `${origin}/login?error=${encodeURIComponent(error.message)}`
       );
     }
 
@@ -41,5 +41,5 @@ export async function GET(request: Request) {
   }
 
   // No code in the URL — redirect URL was not whitelisted in Supabase or OAuth failed
-  return NextResponse.redirect(`${origin}/auth?error=missing_oauth_code`);
+  return NextResponse.redirect(`${origin}/login?error=missing_oauth_code`);
 }

@@ -4,13 +4,15 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { createClient } from "@/app/lib/supabase/client";
+import { resolvePostAuthDestination } from "@/app/lib/postAuth";
+import { PageFooter, PageHeader } from "@/app/components/PageHeader";
 
-function AuthContent() {
+function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const posthog = usePostHog();
   const urlError = searchParams.get("error");
-  const [mode, setMode] = useState<"signin" | "signup" | "email-sent">("signin");
+  const [emailSent, setEmailSent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -20,9 +22,7 @@ function AuthContent() {
   const [error, setError] = useState<string | null>(urlError);
 
   function switchMode(m: "signin" | "signup") {
-    setMode(m);
-    setError(null);
-    setConfirmPasswordError(null);
+    router.push(m === "signin" ? "/login" : "/signup");
   }
 
   async function handleEmailAuth(e: React.FormEvent) {
@@ -45,7 +45,8 @@ function AuthContent() {
         setError(error.message);
         setLoading(false);
       } else {
-        router.push("/");
+        const dest = await resolvePostAuthDestination();
+        router.push(dest);
         router.refresh();
       }
     } else {
@@ -61,7 +62,7 @@ function AuthContent() {
         setLoading(false);
       } else {
         posthog.capture("signup", { method: "email" });
-        setMode("email-sent");
+        setEmailSent(true);
         setLoading(false);
       }
     }
@@ -97,21 +98,13 @@ function AuthContent() {
 
   return (
     <main className="min-h-screen flex flex-col">
-      <nav className="px-6 py-4 flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-2">
-          <span className="text-brand-500 text-xl">⚡</span>
-          <span className="font-bold text-lg tracking-tight">Macro Planner</span>
-        </div>
-        <span className="text-xs text-gray-500 bg-white/5 px-3 py-1 rounded-full">
-          College-friendly nutrition
-        </span>
-      </nav>
+      <PageHeader showUser={false} />
 
       <section className="flex-1 flex flex-col items-center justify-center px-4 py-16">
         <div className="w-full max-w-sm">
 
           {/* ── Email-sent confirmation screen ── */}
-          {mode === "email-sent" ? (
+          {emailSent ? (
             <div className="bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl backdrop-blur-sm text-center space-y-4">
               <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
                 <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -133,7 +126,7 @@ function AuthContent() {
               <p className="text-xs text-gray-600">
                 Didn&apos;t get it? Check your spam folder or{" "}
                 <button
-                  onClick={() => switchMode("signup")}
+                  onClick={() => setEmailSent(false)}
                   className="text-brand-400 hover:underline"
                 >
                   try again
@@ -150,7 +143,7 @@ function AuthContent() {
                 <p className="text-gray-400 text-sm">
                   {mode === "signin"
                     ? "Sign in to access your meal plans"
-                    : "Sign up to get your free 7-day plan"}
+                    : "Sign up to start with a free 7-day trial"}
                 </p>
               </div>
 
@@ -178,7 +171,7 @@ function AuthContent() {
                   <div className="flex-1 h-px bg-white/10" />
                 </div>
 
-                {/* Mode toggle */}
+                {/* Mode toggle — navigates between /login and /signup */}
                 <div className="flex rounded-xl bg-white/5 border border-white/10 p-1">
                   {(["signin", "signup"] as const).map((m) => (
                     <button
@@ -273,24 +266,22 @@ function AuthContent() {
               </div>
 
               <p className="mt-6 text-center text-xs text-gray-600">
-                One free 7-day plan included with every account.
+                Free 7-day trial included with every account.
               </p>
             </>
           )}
         </div>
       </section>
 
-      <footer className="px-6 py-4 text-center text-xs text-gray-600 border-t border-white/5">
-        © {new Date().getFullYear()} Macro Planner · Built for college students
-      </footer>
+      <PageFooter />
     </main>
   );
 }
 
-export default function AuthPage() {
+export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
   return (
     <Suspense>
-      <AuthContent />
+      <AuthFormContent mode={mode} />
     </Suspense>
   );
 }

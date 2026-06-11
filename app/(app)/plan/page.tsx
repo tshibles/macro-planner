@@ -3,11 +3,12 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePostHog } from "posthog-js/react";
-import type { DayMeals, MealPlan } from "@/app/lib/generatePlan";
+import type { DayMeals, MealPlan, PrepSession, PrepRecipe, SlotSource } from "@/app/lib/generatePlan";
 import { findSwapAlternatives } from "@/app/lib/generatePlan";
 import { Meal, MealType } from "@/app/data/meals";
 import { getTierById, planTiers } from "@/app/data/plans";
-import { UserButton } from "@/app/components/UserButton";
+import { buildSavedPlanParams } from "@/app/lib/savedPlanParams";
+import { resolvePostAuthDestination } from "@/app/lib/postAuth";
 import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
 import { STATE_NAMES } from "@/app/data/stateMultipliers";
 
@@ -39,6 +40,13 @@ const MEAL_LABELS: Record<string, string> = {
   lunch: "Lunch",
   dinner: "Dinner",
   snack: "Snack",
+};
+
+// Badges marking where each day-slot's meal comes from in the meal-prep model.
+const SOURCE_BADGES: Record<SlotSource, { label: string; classes: string }> = {
+  "sunday-prep":    { label: "Reheat · Sun prep", classes: "bg-violet-500/15 text-violet-300 border-violet-500/25" },
+  "wednesday-prep": { label: "Reheat · Wed prep", classes: "bg-cyan-500/15 text-cyan-300 border-cyan-500/25" },
+  fresh:            { label: "Make fresh", classes: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
 };
 
 // ─── Macro Badge ────────────────────────────────────────────────────────────
@@ -218,6 +226,32 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
             </ol>
           </div>
 
+          {/* Batch storage & reheating */}
+          {meal.prepType === "batch" && (meal.storageInstructions || meal.reheatInstructions) && (
+            <div className="bg-white/[0.03] border border-white/8 rounded-xl px-4 py-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                Meal-Prep Notes
+              </h3>
+              {meal.batchServings && (
+                <p className="text-sm text-gray-400">
+                  Batch recipe — one cook makes about {meal.batchServings} servings.
+                </p>
+              )}
+              {meal.storageInstructions && (
+                <div className="flex gap-2 text-sm">
+                  <span className="flex-shrink-0">🧊</span>
+                  <p className="text-gray-400 leading-relaxed">{meal.storageInstructions}</p>
+                </div>
+              )}
+              {meal.reheatInstructions && (
+                <div className="flex gap-2 text-sm">
+                  <span className="flex-shrink-0">♨️</span>
+                  <p className="text-gray-400 leading-relaxed">{meal.reheatInstructions}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Cost */}
           <div className="pt-2 pb-1 border-t border-white/8 flex items-center justify-between text-sm">
             <span className="text-gray-500">Estimated cost per serving</span>
@@ -240,6 +274,7 @@ function MealCard({
   rating,
   onRate,
   showRatings,
+  source,
 }: {
   meal: Meal;
   onClick: () => void;
@@ -247,7 +282,9 @@ function MealCard({
   rating?: Rating;
   onRate?: (kind: Rating) => void;
   showRatings?: boolean;
+  source?: SlotSource;
 }) {
+  const badge = source ? SOURCE_BADGES[source] : null;
   return (
     <div
       onClick={onClick}
@@ -258,8 +295,13 @@ function MealCard({
     >
       <span className="text-base w-6 flex-shrink-0 text-center">{MEAL_ICONS[meal.type]}</span>
       <div className="min-w-0 flex-1">
-        <p className="text-xs text-gray-600 font-medium uppercase tracking-wider leading-none mb-0.5">
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wider leading-none mb-0.5 flex items-center gap-1.5">
           {MEAL_LABELS[meal.type]}
+          {badge && (
+            <span className={`normal-case tracking-normal text-[10px] font-medium px-1.5 py-0.5 rounded-md border leading-none ${badge.classes}`}>
+              {badge.label}
+            </span>
+          )}
         </p>
         <p className="text-sm text-white font-medium leading-snug group-hover:text-brand-400 transition-colors truncate">
           {meal.name}
@@ -324,6 +366,112 @@ function MealCard({
   );
 }
 
+// ─── Meal Prep Guide ─────────────────────────────────────────────────────────
+// The week's two prep sessions: what to batch-cook on Sunday and Wednesday,
+// how many servings each recipe makes, which days it covers, and how to store
+// and reheat the portions. Fresh meals stay on their day cards below.
+
+function PrepRecipeRow({ recipe, onClick }: { recipe: PrepRecipe; onClick: () => void }) {
+  const m = recipe.meal;
+  return (
+    <div className="py-3 border-b border-white/5 last:border-0">
+      <div
+        onClick={onClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter") onClick(); }}
+        className="flex items-start gap-3 cursor-pointer group"
+      >
+        <span className="text-base w-6 flex-shrink-0 text-center mt-0.5">{MEAL_ICONS[m.type]}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wider leading-none mb-0.5">
+            {MEAL_LABELS[m.type]}
+          </p>
+          <p className="text-sm text-white font-medium leading-snug group-hover:text-brand-400 transition-colors">
+            {m.name}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Cook {recipe.servingsToCook} serving{recipe.servingsToCook === 1 ? "" : "s"} · covers{" "}
+            {recipe.coveredDays.join(", ")}
+            {recipe.batchServings > recipe.servingsToCook &&
+              ` · recipe scales to ${recipe.batchServings}`}
+          </p>
+          <div className="flex flex-wrap items-center gap-1 mt-1.5">
+            <MacroBadge label="kcal" value={m.calories} color="bg-white/6 text-gray-400" />
+            <MacroBadge label="P" value={`${m.protein}g`} color="bg-blue-500/10 text-blue-400" />
+            <span className="text-[10px] text-gray-600 ml-1">per serving</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 ml-9 space-y-1.5">
+        <div className="flex gap-2 text-xs">
+          <span className="flex-shrink-0">🧊</span>
+          <p className="text-gray-500 leading-relaxed">{recipe.storageInstructions}</p>
+        </div>
+        <div className="flex gap-2 text-xs">
+          <span className="flex-shrink-0">♨️</span>
+          <p className="text-gray-500 leading-relaxed">{recipe.reheatInstructions}</p>
+        </div>
+        <details className="text-xs">
+          <summary className="text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+            Batch ingredients ({recipe.batchIngredients.length})
+          </summary>
+          <ul className="mt-1.5 space-y-1 pl-1">
+            {recipe.batchIngredients.map((ing, i) => (
+              <li key={i} className="flex items-baseline gap-2">
+                <span className="w-1 h-1 rounded-full bg-brand-500/60 flex-shrink-0 mt-1" />
+                <span className="text-gray-400 flex-1">{ing.item}</span>
+                <span className="text-gray-600 flex-shrink-0">{ing.amount}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+function PrepGuide({ sessions, onMealClick }: { sessions: PrepSession[]; onMealClick: (m: Meal) => void }) {
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">🍳</span>
+        <div>
+          <h2 className="text-white font-bold text-lg leading-tight">Meal Prep Guide</h2>
+          <p className="text-xs text-gray-500">
+            Two batch-cooking sessions cover most of this week — everything else is made fresh.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {sessions.map((session) => (
+          <div
+            key={session.sessionDay}
+            className="bg-white/[0.04] border border-white/8 rounded-2xl overflow-hidden"
+          >
+            <div className="px-5 py-3 bg-white/[0.03] border-b border-white/8 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-white text-sm">
+                  {session.sessionDay === "Sunday" ? "🟣" : "🔵"} {session.title}
+                </p>
+                <p className="text-xs text-gray-600">{session.coversLabel}</p>
+              </div>
+              <span className="text-xs text-gray-500">
+                {session.recipes.length} recipe{session.recipes.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="px-4">
+              {session.recipes.map((r) => (
+                <PrepRecipeRow key={`${r.slot}-${r.meal.id}`} recipe={r} onClick={() => onMealClick(r.meal)} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Day Card ────────────────────────────────────────────────────────────────
 
 const DAY_SLOTS: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
@@ -364,6 +512,7 @@ function DayCard({
               rating={ratings?.[meal.id]}
               onRate={onRate ? (kind) => onRate(meal.id, kind) : undefined}
               showRatings={showRatings}
+              source={dayPlan.slotSources?.[slot]}
             />
           );
         })}
@@ -649,7 +798,32 @@ function PlanContent() {
   useEffect(() => {
     fetch("/api/meal-plans/saved")
       .then((r) => r.json())
-      .then(({ plan }) => {
+      .then(async ({ plan }) => {
+        // Bare visit from the nav bar (no query params): rebuild the URL from
+        // the saved row so the same generation (same salt) renders. This is
+        // the returning-user restoration that used to live on the old home
+        // page. New users with no saved row go fill out the form instead.
+        if (!params.get("budget")) {
+          if (!plan) {
+            // No saved plan: subscribed users go fill out the form; everyone
+            // else gets the same routing the AppShell gate would apply.
+            const dest = await resolvePostAuthDestination();
+            router.replace(dest === "/plan" ? "/onboarding" : dest);
+            return;
+          }
+          // Prefer the live subscription tier over the saved row's tier so an
+          // upgraded user gets their full plan length.
+          const sub = await fetch("/api/subscriptions/status")
+            .then((r) => r.json())
+            .catch(() => ({}));
+          const tierOverride = sub?.tier ? getTierById(sub.tier).id : undefined;
+          const restored = buildSavedPlanParams(plan, tierOverride);
+          if (plan.plan_salt != null) restored.set("salt", String(plan.plan_salt));
+          if (paidParam) restored.set("paid", "true");
+          window.location.replace(`/plan?${restored.toString()}`);
+          return;
+        }
+
         if (plan) {
           const initial: Record<string, Rating> = {};
           for (const id of plan.liked_meal_ids ?? []) initial[id] = "like";
@@ -826,7 +1000,7 @@ function PlanContent() {
 
   if (resolving || !plan) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[60vh] flex items-center justify-center">
         <div className="text-gray-400 text-sm">Building your plan…</div>
       </div>
     );
@@ -966,34 +1140,7 @@ function PlanContent() {
         />
       )}
 
-      <main className="min-h-screen flex flex-col">
-        {/* Nav */}
-        <nav className="px-6 py-4 flex items-center justify-between border-b border-white/5 sticky top-0 bg-gray-950/90 backdrop-blur-md z-10">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push("/")}
-              className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-sm"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" />
-              </svg>
-              Back
-            </button>
-            <div className="h-4 w-px bg-white/10" />
-            <span className="text-brand-500">⚡</span>
-            <span className="font-bold text-sm tracking-tight">Macro Planner</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push("/")}
-              className="text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg px-3 py-1.5 transition-colors"
-            >
-              New plan
-            </button>
-            <UserButton />
-          </div>
-        </nav>
-
+      <main className="flex-1 flex flex-col">
         <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-10">
           {/* Header */}
           <div className="mb-8">
@@ -1141,7 +1288,23 @@ function PlanContent() {
             )}
           </div>
 
+          {/* Meal prep guide for the visible week */}
+          {!isWeekLocked && (plan.prepSessions?.[currentWeek]?.length ?? 0) > 0 && (
+            <PrepGuide sessions={plan.prepSessions[currentWeek]} onMealClick={handleMealClick} />
+          )}
+
           {/* Day cards */}
+          {!isWeekLocked && (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">📅</span>
+              <div>
+                <h2 className="text-white font-bold text-lg leading-tight">Day by Day</h2>
+                <p className="text-xs text-gray-500">
+                  Reheat-tagged meals come out of your prep containers; everything else is made fresh that day.
+                </p>
+              </div>
+            </div>
+          )}
           {isWeekLocked ? (
             <div className="relative min-h-[500px]">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 blur-sm pointer-events-none select-none" aria-hidden>
@@ -1180,17 +1343,13 @@ function PlanContent() {
             </button>
             <p className="text-sm text-gray-500">Not happy with your plan?</p>
             <button
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/settings")}
               className="bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20"
             >
-              Adjust my preferences
+              Adjust preferences &amp; regenerate
             </button>
           </div>
         </div>
-
-        <footer className="px-6 py-4 text-center text-xs text-gray-600 border-t border-white/5">
-          © {new Date().getFullYear()} Macro Planner · Built for college students
-        </footer>
       </main>
     </>
   );
@@ -1199,7 +1358,7 @@ function PlanContent() {
 export default function PlanPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[60vh] flex items-center justify-center">
         <div className="text-gray-400 text-sm">Building your plan…</div>
       </div>
     }>

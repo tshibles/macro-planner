@@ -3,9 +3,9 @@ import "./globals.css";
 import { PostHogProvider } from "@/app/components/PostHogProvider";
 
 export const metadata: Metadata = {
-  title: "Macro Planner — Eat Well on a College Budget",
+  title: "Campus Macros — Eat Well on a College Budget",
   description:
-    "Generate a personalized weekly meal plan tailored to your fitness goals, dietary needs, and college budget.",
+    "Personalized meal plans for college students that hit your macros within your budget — recipes, grocery lists, and calorie targeting included.",
 };
 
 export default function RootLayout({

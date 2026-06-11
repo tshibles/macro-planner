@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     age = "", activityLevel = "", allergies = "",
     weight = "", heightFt = "", heightIn = "", gender = "", state = "",
     targetWeight = "", goalTimeframe = "",
+    successPath = "", cancelPath = "",
     origin,
   } = await req.json();
 
@@ -43,8 +44,17 @@ export async function POST(req: NextRequest) {
   if (targetWeight) baseParams.set("targetWeight", targetWeight);
   if (goalTimeframe) baseParams.set("goalTimeframe", goalTimeframe);
 
-  const successUrl = `${origin}/plan?${baseParams.toString()}&paid=true`;
-  const cancelUrl = `${origin}/plan?${baseParams.toString()}`;
+  // Callers may supply explicit same-site return paths (e.g. the /checkout
+  // page sends new users to /onboarding after paying); the legacy plan-page
+  // URLs remain the default.
+  const successUrl =
+    typeof successPath === "string" && successPath.startsWith("/")
+      ? `${origin}${successPath}`
+      : `${origin}/plan?${baseParams.toString()}&paid=true`;
+  const cancelUrl =
+    typeof cancelPath === "string" && cancelPath.startsWith("/")
+      ? `${origin}${cancelPath}`
+      : `${origin}/plan?${baseParams.toString()}`;
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],

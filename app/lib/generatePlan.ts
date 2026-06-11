@@ -1,7 +1,7 @@
-import { meals, Meal, DietaryFlag } from "@/app/data/meals";
+import { meals, Meal, DietaryFlag, Ingredient } from "@/app/data/meals";
 import { STATE_MULTIPLIERS } from "@/app/data/stateMultipliers";
 import { normalizeKey } from "@/app/lib/normalizeIngredient";
-import { isPantryStaple, computePurchasable, PURCHASABLE_MAP, lookupPurchasable, PurchasableUnitDef } from "@/app/data/purchasableUnits";
+import { isPantryStaple, computePurchasable, parseAmountInBase, PURCHASABLE_MAP, lookupPurchasable, PurchasableUnitDef } from "@/app/data/purchasableUnits";
 
 export interface CartItem {
   key: string;
@@ -12,6 +12,10 @@ export interface CartItem {
   pricePerUnit: number;
   totalCost: number;
 }
+
+// Where a day's slot meal comes from in the meal-prep model: batch-cooked at
+// one of the week's two prep sessions, or made fresh the same day.
+export type SlotSource = "sunday-prep" | "wednesday-prep" | "fresh";
 
 export interface DayMeals {
   day: string;
@@ -27,11 +31,45 @@ export interface DayMeals {
   dailyCarbs: number;
   dailyFat: number;
   dailyCost: number;
+  // Per-slot provenance — derived after final meal assignment so swaps that
+  // break a batch group demote that day's slot back to "fresh".
+  slotSources: Record<"breakfast" | "lunch" | "dinner" | "snack", SlotSource>;
 }
 
 export interface WeeklyCartSummary {
   items: CartItem[];
   totalCost: number;
+}
+
+// ── Meal-Prep Sessions ────────────────────────────────────────────────────────
+// Each week has two prep sessions: Sunday prep batch-cooks for Monday–Wednesday
+// and Wednesday prep batch-cooks for Thursday–Saturday. Sunday itself is a
+// lighter, all-fresh day. A batched recipe intentionally repeats across the
+// days it covers — that's the meal-prep model, not a variety bug.
+
+export interface PrepRecipe {
+  // The per-serving meal exactly as eaten (portion-scaled).
+  meal: Meal;
+  slot: "breakfast" | "lunch" | "dinner" | "snack";
+  // Portions to cook at this session = days this batch covers in the plan.
+  servingsToCook: number;
+  // The recipe's natural batch yield (from the meal library).
+  batchServings: number;
+  coveredDayIndexes: number[];
+  coveredDays: string[];
+  storageInstructions: string;
+  reheatInstructions: string;
+  // Total ingredients for the whole batch (per-serving amounts × servings),
+  // so the prep-day cook buys/cooks one batch — not one set per covered day.
+  batchIngredients: Ingredient[];
+}
+
+export interface PrepSession {
+  weekIndex: number;
+  sessionDay: "Sunday" | "Wednesday";
+  title: string;       // e.g. "Sunday Prep"
+  coversLabel: string; // e.g. "Covers Monday – Wednesday"
+  recipes: PrepRecipe[];
 }
 
 // A user-initiated meal replacement, applied on top of the deterministic
@@ -55,9 +93,19 @@ export interface MealPlan {
   proteinTarget?: number;
   budgetCapMessage?: string;
   cartFallbackUsed?: boolean;
-  // One cart per week, pruned to the ingredients that week's meals actually
-  // use. weeklyCarts[w] pairs with weeks[w].
+  // One cart per week, built from the week's FINAL portion-scaled meals
+  // (batch ingredients counted once per prep session). weeklyCarts[w] pairs
+  // with weeks[w].
   weeklyCarts: WeeklyCartSummary[];
+  // Per-week prep sessions (usually Sunday + Wednesday). prepSessions[w]
+  // pairs with weeks[w]; empty sessions are omitted.
+  prepSessions: PrepSession[][];
+  // Portion scale each week actually applied so its real grocery cost fits the
+  // weekly budget (1 = full portions). Pairs with weeks[w].
+  weeklyPortionScale?: number[];
+  // Each week's grocery cost at full (scale = 1) portions — the true price of
+  // the calorie target, used for honest budget messaging.
+  weeklyFullCost?: number[];
 }
 
 // Internal purchase record — a superset of CartItem with tracking fields.
@@ -553,6 +601,41 @@ function expandCartForMealVariety(
       console.warn(`[generatePlan] ${slot.type}: budget exhausted at ${slot.count} cookable meals — will cycle`);
     }
   }
+
+  // Batch-coverage pass: the meal-prep model batch-cooks lunches/dinners (and
+  // a snack when possible) at the week's two prep sessions. Make sure each of
+  // those slots has batch-cookable recipes, or a prep segment would fall back
+  // to repeating a fresh meal. Cheapest missing-ingredient set first.
+  const BATCH_MINIMUMS: Array<{ type: Meal["type"]; min: number }> = [
+    { type: "lunch", min: 5 }, { type: "dinner", min: 5 }, { type: "snack", min: 2 },
+  ];
+  for (const { type, min } of BATCH_MINIMUMS) {
+    const batchCookable = () =>
+      meals.filter((m) => baseFilter(m, type) && m.prepType === "batch" && mealEligibleFromCart(m, cartEntries)).length;
+    while (batchCookable() < min) {
+      let cheapest: { meal: Meal; missing: Array<{ key: string; def: PurchasableUnitDef }>; cost: number } | null = null;
+      for (const meal of meals) {
+        if (!baseFilter(meal, type) || meal.prepType !== "batch" || mealEligibleFromCart(meal, cartEntries)) continue;
+        const missing = collectMissingProducts(meal, cartEntries);
+        const cost = +missing
+          .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0)
+          .toFixed(2);
+        if (cost > perMealCap || cost > budgetRef.remaining) continue;
+        if (!cheapest || cost < cheapest.cost) cheapest = { meal, missing, cost };
+      }
+      if (!cheapest) break;
+      for (const { key, def } of cheapest.missing) {
+        cartEntries.push(makeCartEntry(key, def, 1, stateMultiplier));
+      }
+      budgetRef.remaining = +(budgetRef.remaining - cheapest.cost).toFixed(2);
+      console.log(
+        `[generatePlan] batch-coverage: ${type} "${cheapest.meal.id}" unlocked for $${cheapest.cost} — $${budgetRef.remaining} left`
+      );
+    }
+    if (batchCookable() < min) {
+      console.warn(`[generatePlan] ${type}: only ${batchCookable()} batch-cookable meals (wanted ${min}) — prep segments may repeat fresh meals`);
+    }
+  }
 }
 
 // ── Phase 4: Leftover Budget on Breadth Staples ───────────────────────────────
@@ -722,78 +805,189 @@ function buildFinalPool(
   return { pool: ordered, starved: pool.length < 7, usedSafetyNet, dietRelaxed };
 }
 
-// ── Grocery List Builder (kept for internal use) ───────────────────────────────
-// Aggregates all ingredients from the week 1 meal template. Used as a utility
-// function; the displayed weeklyCarts come from buildTargetedCart instead.
+// ── Requirement-Driven Weekly Cart ────────────────────────────────────────────
+// The displayed cart derives from the week's FINAL meals — after selection,
+// swaps, and portion scaling — aggregated batch-aware: each prep recipe
+// contributes its whole-batch ingredients ONCE (cook once, eat across the
+// covered days), and every non-batch day-slot contributes its per-serving
+// scaled amounts. Aggregated quantities convert to retail packages via
+// computePurchasable, so the cart covers exactly what the week cooks —
+// no under-buying, no over-buying.
 
-function buildGroceryFromMeals(week1: DayMeals[], stateMultiplier: number): WeeklyCartSummary {
-  const ingredientMap = new Map<string, { amounts: string[]; rawKey: string }>();
-  for (const day of week1) {
-    for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
-      for (const ing of meal.ingredients) {
-        const key = normalizeKey(ing.item);
-        if (isPantryStaple(key)) continue;
-        if (!ingredientMap.has(key)) ingredientMap.set(key, { amounts: [], rawKey: ing.item });
-        ingredientMap.get(key)!.amounts.push(ing.amount);
-      }
-    }
-  }
-  const items: CartItem[] = Array.from(ingredientMap.entries()).map(([key, { amounts, rawKey }]) => {
-    const result = computePurchasable(key, amounts, amounts.length, stateMultiplier);
-    return {
-      key,
-      displayName: rawKey.replace(/\b\w/g, (c: string) => c.toUpperCase()),
-      category: categorizeIngredient(key),
-      packages: result.qty,
-      purchaseLabel: result.label,
-      pricePerUnit: result.pricePerUnit,
-      totalCost: result.total,
-    };
-  });
-  return { items, totalCost: +items.reduce((s, i) => s + i.totalCost, 0).toFixed(2) };
+interface WeekProduct {
+  key: string;                 // first normalized ingredient key seen for this product
+  def: PurchasableUnitDef;
+  amounts: string[];           // batch-aware amounts to purchase
+  uses: Array<{ dayIndex: number; slot: MealKey; amount: string }>; // every day-slot use, for cost allocation
 }
 
-// ── Per-Week Cart Pruning ─────────────────────────────────────────────────────
-// Phases 1–2 buy by macro math, not by recipe, so the full cart can contain
-// items (e.g. a protein bought purely for its protein-per-dollar) that no
-// selected meal cooks. Each week keeps only the items its own meals use, so
-// every week's grocery list matches that week's plan exactly.
-
-function pruneCartToWeek(cartEntries: CartEntry[], weekDays: DayMeals[], label: string): CartEntry[] {
-  const usedProducts = new Set<string>();
-  for (const day of weekDays) {
-    for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
-      for (const ing of meal.ingredients) {
-        const key = normalizeKey(ing.item);
-        if (isPantryStaple(key)) continue;
-        const def = lookupPurchasable(key);
-        if (def) usedProducts.add(productId(def.price, def.unit));
-      }
-    }
-  }
-  const kept = cartEntries.filter((e) => usedProducts.has(productId(e.defPrice, e.defUnit)));
-  const pruned = cartEntries.filter((e) => !usedProducts.has(productId(e.defPrice, e.defUnit)));
-  if (pruned.length > 0) {
-    console.log(`[generatePlan] ${label}: pruned ${pruned.length} unused cart items: ${pruned.map((e) => e.key).join(", ")}`);
-  }
-  return kept;
-}
-
-function cartSummaryFromEntries(entries: CartEntry[]): WeeklyCartSummary {
-  return {
-    items: entries.map(({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost }) =>
-      ({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost })),
-    totalCost: +entries.reduce((s, e) => s + e.totalCost, 0).toFixed(2),
+function aggregateWeekProducts(weekDays: DayMeals[], sessions: PrepSession[]): Map<string, WeekProduct> {
+  const products = new Map<string, WeekProduct>();
+  const productFor = (item: string): WeekProduct | null => {
+    const key = normalizeKey(item);
+    if (isPantryStaple(key)) return null;
+    const def = lookupPurchasable(key);
+    if (!def) return null; // unknown ingredient — assumed available, never bought
+    const id = productId(def.price, def.unit);
+    if (!products.has(id)) products.set(id, { key, def, amounts: [], uses: [] });
+    return products.get(id)!;
   };
+
+  // Batch recipes: whole-batch amounts, counted once per prep session.
+  const batchCovered = new Set<string>();
+  for (const session of sessions) {
+    for (const r of session.recipes) {
+      for (const ing of r.batchIngredients) productFor(ing.item)?.amounts.push(ing.amount);
+      for (const d of r.coveredDayIndexes) batchCovered.add(`${d}|${r.slot}`);
+    }
+  }
+  for (const day of weekDays) {
+    for (const slot of MEAL_SLOTS) {
+      for (const ing of day[slot].ingredients) {
+        const p = productFor(ing.item);
+        if (!p) continue;
+        // Every slot records a use (cost allocation shares); only non-batch
+        // slots also add purchase amounts — batch slots are already covered
+        // by their session's whole-batch ingredients.
+        p.uses.push({ dayIndex: day.dayIndex, slot, amount: ing.amount });
+        if (!batchCovered.has(`${day.dayIndex}|${slot}`)) p.amounts.push(ing.amount);
+      }
+    }
+  }
+  return products;
 }
 
-// ── Pool Index Tracker ────────────────────────────────────────────────────────
+interface BuiltWeekCart {
+  summary: WeeklyCartSummary;
+  products: Map<string, WeekProduct>;
+  itemByProduct: Map<string, CartItem>;
+}
 
-interface UsedTracker { breakfast: number; lunch: number; dinner: number; snack: number; }
+function buildWeekCart(weekDays: DayMeals[], sessions: PrepSession[], stateMultiplier: number): BuiltWeekCart {
+  const products = aggregateWeekProducts(weekDays, sessions);
+  const items: CartItem[] = [];
+  const itemByProduct = new Map<string, CartItem>();
+  for (const [id, p] of Array.from(products.entries())) {
+    const r = computePurchasable(p.key, p.amounts, p.amounts.length, stateMultiplier);
+    const item: CartItem = {
+      key: p.key,
+      displayName: p.key.replace(/\b\w/g, (c) => c.toUpperCase()),
+      category: categorizeIngredient(p.key),
+      packages: r.qty,
+      purchaseLabel: r.label,
+      pricePerUnit: r.pricePerUnit,
+      totalCost: r.total,
+    };
+    items.push(item);
+    itemByProduct.set(id, item);
+  }
+  const totalCost = +items.reduce((s, i) => s + i.totalCost, 0).toFixed(2);
+  return { summary: { items, totalCost }, products, itemByProduct };
+}
+
+// ── Meal-Card Cost Allocation ─────────────────────────────────────────────────
+// Distributes each cart product's real purchase cost across the day-slots that
+// consume it (by share of parsed amount), so per-meal and per-day costs sum
+// exactly to the week's cart total — one source of truth for every displayed $.
+
+function assignMealCostsFromCart(weekDays: DayMeals[], built: BuiltWeekCart): void {
+  const slotCost = new Map<string, number>(); // `${dayIndex}|${slot}` → $
+  for (const [id, p] of Array.from(built.products.entries())) {
+    const item = built.itemByProduct.get(id);
+    if (!item || p.uses.length === 0) continue;
+    const parsedVals = p.uses.map((u) => parseAmountInBase(u.amount, p.def.base, p.def.perCup));
+    const totalParsed = parsedVals.reduce((s: number, v) => s + (v ?? 0), 0);
+    p.uses.forEach((u, i) => {
+      const share = totalParsed > 0 ? (parsedVals[i] ?? 0) / totalParsed : 1 / p.uses.length;
+      const k = `${u.dayIndex}|${u.slot}`;
+      slotCost.set(k, (slotCost.get(k) ?? 0) + item.totalCost * share);
+    });
+  }
+
+  // Round per meal, then settle the leftover cents on the priciest meal so the
+  // week's meal costs sum to the cart total exactly. Meals are replaced with
+  // copies — pool objects from the base catalog must never be mutated.
+  let assigned = 0;
+  let priciest: { day: DayMeals; slot: MealKey; cost: number } | null = null;
+  for (const day of weekDays) {
+    for (const slot of MEAL_SLOTS) {
+      const cost = +(slotCost.get(`${day.dayIndex}|${slot}`) ?? 0).toFixed(2);
+      day[slot] = { ...day[slot], cost };
+      assigned = +(assigned + cost).toFixed(2);
+      if (!priciest || cost > priciest.cost) priciest = { day, slot, cost };
+    }
+  }
+  const drift = +(built.summary.totalCost - assigned).toFixed(2);
+  if (priciest && Math.abs(drift) >= 0.005) {
+    priciest.day[priciest.slot] = { ...priciest.day[priciest.slot], cost: +(priciest.cost + drift).toFixed(2) };
+  }
+  for (const day of weekDays) recomputeDayTotals(day);
+}
+
+// ── Week Finalizer: scale → real cart → budget fit → cost reconciliation ─────
+// Builds a week's final days and its requirement-driven cart together. If the
+// TRUE grocery cost of the week exceeds the weekly budget, portions are scaled
+// down proportionally (re-deriving prep sessions and the cart each pass) until
+// the real cart fits — the honest tradeoff, instead of silently under-buying.
+
+const MIN_PORTION_SCALE = 0.5;
+
+interface FinalizedWeek {
+  days: DayMeals[];
+  sessions: PrepSession[];
+  cart: WeeklyCartSummary;
+  scale: number;        // portion scale applied (1 = full portions)
+  fullCost: number;     // cart cost at scale = 1 — the true cost of the target
+  portionCapped: boolean;
+}
+
+function finalizeWeek(
+  makeWeek: () => DayMeals[],
+  weekIndex: number,
+  calorieTarget: number | null,
+  dailyProteinTarget: number | null,
+  weeklyBudget: number,
+  stateMultiplier: number,
+  label: string
+): FinalizedWeek {
+  let scale = 1;
+  let fullCost = 0;
+  let result: { days: DayMeals[]; built: BuiltWeekCart; capped: boolean } | null = null;
+
+  for (let iter = 0; iter < 12; iter++) {
+    const days = makeWeek();
+    const capped = calorieTarget
+      ? scaleWeekToCalorieTarget(days, calorieTarget * scale, dailyProteinTarget ? dailyProteinTarget * scale : null)
+      : false;
+    const built = buildWeekCart(days, derivePrepSessions(days, weekIndex), stateMultiplier);
+    result = { days, built, capped };
+    if (iter === 0) fullCost = built.summary.totalCost;
+    if (built.summary.totalCost <= weeklyBudget + 0.005) break;
+    if (!calorieTarget || scale <= MIN_PORTION_SCALE) break; // can't shrink further — reported honestly
+    const next = Math.max(
+      MIN_PORTION_SCALE,
+      Math.min(scale * (weeklyBudget / built.summary.totalCost) * 0.98, scale - 0.01)
+    );
+    if (next >= scale) break;
+    scale = next;
+    console.log(
+      `[generatePlan] ${label}: groceries $${built.summary.totalCost} exceed $${weeklyBudget} budget — retrying at ${Math.round(scale * 100)}% portions`
+    );
+  }
+
+  const { days, built, capped } = result!;
+  assignMealCostsFromCart(days, built);
+  // Re-derive sessions from the cost-bearing meal copies so the prep guide's
+  // recipes show the same reconciled per-serving costs.
+  const sessions = derivePrepSessions(days, weekIndex);
+  return { days, sessions, cart: built.summary, scale, fullCost, portionCapped: capped };
+}
+
+// ── Slot Keys ─────────────────────────────────────────────────────────────────
+
 type MealKey = "breakfast" | "lunch" | "dinner" | "snack";
-function freshUsedTracker(): UsedTracker { return { breakfast: 0, lunch: 0, dinner: 0, snack: 0 }; }
 
-// ── Calorie Balancer ──────────────────────────────────────────────────────────
+// ── Day Totals ────────────────────────────────────────────────────────────────
 
 function recomputeDayTotals(day: DayMeals): void {
   day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
@@ -801,28 +995,6 @@ function recomputeDayTotals(day: DayMeals): void {
   day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
   day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
   day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
-}
-
-function balanceDailyCalories(week: DayMeals[]): void {
-  for (let iter = 0; iter < 20; iter++) {
-    let maxIdx = 0, minIdx = 0;
-    for (let i = 1; i < week.length; i++) {
-      if (week[i].dailyCalories > week[maxIdx].dailyCalories) maxIdx = i;
-      if (week[i].dailyCalories < week[minIdx].dailyCalories) minIdx = i;
-    }
-    if (week[maxIdx].dailyCalories - week[minIdx].dailyCalories < 200) break;
-    let bestKey: MealKey | null = null, bestReduction = 0;
-    for (const key of ["breakfast", "lunch", "dinner", "snack"] as MealKey[]) {
-      const diff = week[maxIdx][key].calories - week[minIdx][key].calories;
-      if (diff > bestReduction) { bestReduction = diff; bestKey = key; }
-    }
-    if (!bestKey) break;
-    const temp = week[maxIdx][bestKey];
-    week[maxIdx][bestKey] = week[minIdx][bestKey];
-    week[minIdx][bestKey] = temp;
-    recomputeDayTotals(week[maxIdx]);
-    recomputeDayTotals(week[minIdx]);
-  }
 }
 
 // ── Portion Scaler ────────────────────────────────────────────────────────────
@@ -887,98 +1059,299 @@ function redistributeCaloriesForProtein(
   }
 }
 
-// ── Day Meal Selector ─────────────────────────────────────────────────────────
+// ── Meal-Prep Week Composer ───────────────────────────────────────────────────
+// Each week is built around two prep sessions: Sunday prep batch-cooks the
+// lunch + dinner (+ snack when a batch snack is cookable) eaten Monday–
+// Wednesday, and Wednesday prep batch-cooks the same slots for Thursday–
+// Saturday. The batched meal repeats across the days its session covers —
+// intentional and core to the meal-prep model. Breakfasts (and the snack when
+// nothing batchable is in the cart) are fresh same-day meals picked per day;
+// Sunday is a lighter all-fresh day.
+//
+// Protein contract: with a protein target, batch picks minimize the projected
+// day-ratio deviation (remaining slots estimated at their pool means) and the
+// per-day fresh picks then correct each day toward the target — same scoring
+// machinery the old per-day selector used, so delivered protein still tracks
+// the target after uniform portion scaling. A salt-seeded jitter perturbs
+// scores so different salts compose different weeks (regenerate contract);
+// rng consumption order is fixed, preserving salt determinism.
 
-function selectDayMeals(
-  bPool: Meal[], lPool: Meal[], dPool: Meal[], sPool: Meal[],
-  usedTracker: UsedTracker, dayLabel: string
-): { breakfast: Meal; lunch: Meal; dinner: Meal; snack: Meal } {
-  function pick(pool: Meal[], slot: keyof UsedTracker): Meal {
-    const idx = usedTracker[slot] % pool.length;
-    const meal = pool[idx];
-    console.log(`[generatePlan] ${dayLabel} ${slot}: index=${idx}/${pool.length} → "${meal.name}" (id=${meal.id})`);
-    usedTracker[slot]++;
-    return meal;
-  }
-  return { breakfast: pick(bPool,"breakfast"), lunch: pick(lPool,"lunch"),
-           dinner: pick(dPool,"dinner"), snack: pick(sPool,"snack") };
-}
-
-// ── Protein-Aware Day Selector ────────────────────────────────────────────────
-// Used when a protein target exists. Portion scaling preserves each day's
-// protein:calorie ratio, so the only way delivered protein can match the
-// target is to compose days whose ratio is already close to it — e.g. pair a
-// protein-dense dinner with a light breakfast. Each slot picks the candidate
-// minimizing the projected day-ratio deviation (remaining slots estimated at
-// their pool means). Variety is a soft constraint here: re-serving a meal this
-// week costs an escalating penalty, so a repeat only wins when every fresh
-// option would push the day's protein well outside the target band (the
-// catalog has no low-protein dinners, so strict no-repeat weeks are forced
-// onto the protein-dense tail by midweek). Meals served in earlier weeks
-// carry a smaller penalty so fresh-this-month meals win ties. A salt-seeded
-// jitter perturbs each candidate's score so different salts compose different
-// days — without it the argmin is pool-order-independent and every salt
-// converges on the same plan, breaking regenerate/adjust-preferences.
-
-const RATIO_SLOT_ORDER: MealKey[] = ["dinner", "lunch", "breakfast", "snack"];
-const CROSS_WEEK_PENALTY = 0.015;      // ratio-deviation units
+const CROSS_WEEK_PENALTY = 0.015;      // ratio-deviation units (fresh per-day picks)
+// A batch pick repeats across ~3 days, so re-serving last week's batch recipe
+// costs the whole segment — penalize it harder than a single fresh repeat or
+// the same 2–3 recipes win the ratio argmin every week of the month.
+const BATCH_CROSS_WEEK_PENALTY = 0.04;
 const INTRA_WEEK_REUSE_PENALTY = 0.015; // per prior serving this week
 const CAL_FLOOR_WEIGHT = 0.5;          // penalty per fraction of calorie-floor shortfall
 const SALT_JITTER = 0.01;              // max salt-seeded noise, ratio-deviation units
 
-function selectDayMealsForRatio(
+// Week-relative day positions covered by each prep session. Day 6 (Sunday)
+// belongs to no segment — it's the fresh day.
+const PREP_SEGMENTS: Array<{ sessionDay: "Sunday" | "Wednesday"; positions: number[] }> = [
+  { sessionDay: "Sunday",    positions: [0, 1, 2] }, // Monday–Wednesday
+  { sessionDay: "Wednesday", positions: [3, 4, 5] }, // Thursday–Saturday
+];
+
+function poolMeans(pool: Meal[]): { cal: number; prot: number } {
+  if (pool.length === 0) return { cal: 0, prot: 0 };
+  return {
+    cal: pool.reduce((s, m) => s + m.calories, 0) / pool.length,
+    prot: pool.reduce((s, m) => s + m.protein, 0) / pool.length,
+  };
+}
+
+function composeWeekPrep(
   pools: Record<MealKey, Meal[]>,
-  usedThisWeek: Record<MealKey, Map<string, number>>,
+  weekLength: number,
   usedAcrossWeeks: Set<string>,
-  targetRatio: number,
+  targetRatio: number | null,
   dailyCalTarget: number | null,
-  dayLabel: string,
-  rng: () => number
-): Record<MealKey, Meal> {
-  const means = {} as Record<MealKey, { cal: number; prot: number }>;
-  for (const slot of RATIO_SLOT_ORDER) {
-    const pool = pools[slot];
-    means[slot] = {
-      cal: pool.reduce((s, m) => s + m.calories, 0) / pool.length,
-      prot: pool.reduce((s, m) => s + m.protein, 0) / pool.length,
+  goal: string,
+  rng: () => number,
+  weekLabel: string
+): Record<MealKey, Meal>[] {
+  // Split each cart-eligible pool by prep type, preserving the salt-shuffled
+  // order. Either side falls back to the full pool when empty: a missing
+  // batch pool means the segment repeats a fresh meal (cooked ahead anyway),
+  // a missing fresh pool means same-day cooking a batch recipe at 1 serving.
+  const split = (slot: MealKey) => {
+    const batch = pools[slot].filter((m) => m.prepType === "batch");
+    const fresh = pools[slot].filter((m) => m.prepType === "fresh");
+    if (batch.length === 0) console.warn(`[generatePlan] ${weekLabel} ${slot}: no batch-cookable meals — segment will repeat a fresh meal`);
+    return {
+      batch: batch.length ? batch : pools[slot],
+      fresh: fresh.length ? fresh : pools[slot],
     };
-  }
-  const picked = {} as Record<MealKey, Meal>;
-  let cals = 0, prot = 0;
-  for (let i = 0; i < RATIO_SLOT_ORDER.length; i++) {
-    const slot = RATIO_SLOT_ORDER[i];
-    const used = usedThisWeek[slot];
-    let expCal = 0, expProt = 0;
-    for (const rest of RATIO_SLOT_ORDER.slice(i + 1)) {
-      expCal += means[rest].cal;
-      expProt += means[rest].prot;
+  };
+  const prep: Record<MealKey, { batch: Meal[]; fresh: Meal[] }> = {
+    breakfast: split("breakfast"), lunch: split("lunch"), dinner: split("dinner"), snack: split("snack"),
+  };
+
+  // Snacks batch only when the cart actually unlocked a batch snack.
+  const batchSnack = pools.snack.some((m) => m.prepType === "batch");
+  const batchSlots: MealKey[] = batchSnack ? ["dinner", "lunch", "snack"] : ["dinner", "lunch"];
+  const calFloor = dailyCalTarget ? dailyCalTarget / 2 : 0;
+
+  const usedThisWeek: Record<MealKey, Map<string, number>> =
+    { breakfast: new Map(), lunch: new Map(), dinner: new Map(), snack: new Map() };
+
+  const scoreOf = (
+    m: Meal, slot: MealKey,
+    fixedCal: number, fixedProt: number, expCal: number, expProt: number,
+    jitterScale: number,
+    crossWeekPenalty: number
+  ): number => {
+    const projCals = fixedCal + m.calories + expCal;
+    const ratio = ((fixedProt + m.protein + expProt) * 4) / Math.max(projCals, 1);
+    const reuse = usedThisWeek[slot].get(m.id) ?? 0;
+    return (
+      Math.abs(ratio - (targetRatio as number)) +
+      reuse * INTRA_WEEK_REUSE_PENALTY +
+      (reuse === 0 && usedAcrossWeeks.has(m.id) ? crossWeekPenalty : 0) +
+      (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0) +
+      rng() * SALT_JITTER * jitterScale
+    );
+  };
+
+  // ── Per-segment batch picks ──────────────────────────────────────────────
+  const segments = PREP_SEGMENTS
+    .map((s) => ({ ...s, positions: s.positions.filter((p) => p < weekLength) }))
+    .filter((s) => s.positions.length > 0);
+
+  // Reuse/cross-week penalty for one batch candidate.
+  const batchPenalty = (m: Meal, slot: MealKey): number => {
+    const reuse = usedThisWeek[slot].get(m.id) ?? 0;
+    return reuse * INTRA_WEEK_REUSE_PENALTY +
+      (reuse === 0 && usedAcrossWeeks.has(m.id) ? BATCH_CROSS_WEEK_PENALTY : 0);
+  };
+  // Deviations beyond ~8% of the target ratio land the day outside the
+  // protein band — escalate sharply there so variety penalties only arbitrate
+  // among in-band segment picks and can never buy an out-of-band one.
+  const shapeDev = (dev: number): number => {
+    const band = (targetRatio as number) * 0.08;
+    return dev + Math.max(0, dev - band) * 10;
+  };
+  // Best achievable day deviation for a fixed (dinner, lunch[, snack]) set:
+  // search the real breakfast pool for the corrective pick that completes the
+  // day. Mean-based estimates let dense trios through that no breakfast can
+  // fix — the segment repeats for 3 days, so that error costs half the week.
+  const bestDayDev = (fixedCal: number, fixedProt: number): number => {
+    let bestDev = Infinity;
+    for (const b of prep.breakfast.fresh) {
+      const projCals = fixedCal + b.calories;
+      const ratio = ((fixedProt + b.protein) * 4) / Math.max(projCals, 1);
+      const dev = Math.abs(ratio - (targetRatio as number)) +
+        (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0);
+      if (dev < bestDev) bestDev = dev;
     }
-    // Portions cap at 2× — a day whose base calories fall below half the
-    // calorie target can never reach it, so penalize undersized days too.
-    const calFloor = dailyCalTarget ? dailyCalTarget / 2 : 0;
-    // Jitter fades to zero by the last slot: early picks carry the salt's
-    // divergence (each cascades through every later projection), while the
-    // final pick stays purely corrective so the day still lands on target.
-    const jitterScale = (RATIO_SLOT_ORDER.length - 1 - i) / (RATIO_SLOT_ORDER.length - 1);
-    let best = pools[slot][0], bestScore = Infinity;
-    for (const m of pools[slot]) {
-      const projCals = cals + m.calories + expCal;
-      const ratio = ((prot + m.protein + expProt) * 4) / Math.max(projCals, 1);
-      const score =
-        Math.abs(ratio - targetRatio) +
-        (used.get(m.id) ?? 0) * INTRA_WEEK_REUSE_PENALTY +
-        (!used.has(m.id) && usedAcrossWeeks.has(m.id) ? CROSS_WEEK_PENALTY : 0) +
-        (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0) +
-        rng() * SALT_JITTER * jitterScale;
-      if (score < bestScore - 1e-9) { best = m; bestScore = score; }
+    return bestDev;
+  };
+
+  const segPicks: Array<Partial<Record<MealKey, Meal>>> = segments.map((seg) => {
+    const picks: Partial<Record<MealKey, Meal>> = {};
+    if (targetRatio !== null) {
+      // Joint (dinner × lunch) search: both repeat all segment, so a greedy
+      // dinner pick scored against the lunch-pool mean can strand the segment
+      // with only dense lunches. The snack (batched or fresh) is estimated at
+      // its pool mean here and picked right after with dinner+lunch fixed.
+      const snackExp = poolMeans(batchSnack ? prep.snack.batch : prep.snack.fresh);
+      let bestD = prep.dinner.batch[0], bestL = prep.lunch.batch[0], bestScore = Infinity;
+      for (const dM of prep.dinner.batch) {
+        for (const lM of prep.lunch.batch) {
+          const score =
+            shapeDev(bestDayDev(dM.calories + lM.calories + snackExp.cal, dM.protein + lM.protein + snackExp.prot)) +
+            batchPenalty(dM, "dinner") + batchPenalty(lM, "lunch") +
+            rng() * SALT_JITTER;
+          if (score < bestScore - 1e-9) { bestD = dM; bestL = lM; bestScore = score; }
+        }
+      }
+      picks.dinner = bestD;
+      picks.lunch = bestL;
+      if (batchSnack) {
+        let bestS = prep.snack.batch[0]; bestScore = Infinity;
+        for (const sM of prep.snack.batch) {
+          const score =
+            shapeDev(bestDayDev(bestD.calories + bestL.calories + sM.calories, bestD.protein + bestL.protein + sM.protein)) +
+            batchPenalty(sM, "snack") +
+            rng() * SALT_JITTER * 0.5;
+          if (score < bestScore - 1e-9) { bestS = sM; bestScore = score; }
+        }
+        picks.snack = bestS;
+      }
+    } else {
+      // No protein target: best goal-score batch recipe not yet used this
+      // week or month (pool order is salt-shuffled, breaking ties).
+      for (const slot of batchSlots) {
+        const pool = prep[slot].batch;
+        const unused = pool.filter((m) => !usedThisWeek[slot].has(m.id) && !usedAcrossWeeks.has(m.id));
+        const candidates = unused.length ? unused : pool.filter((m) => !usedThisWeek[slot].has(m.id));
+        const ranked = (candidates.length ? candidates : pool);
+        picks[slot] = ranked.reduce((a, b) => (scoreMeal(b, goal) > scoreMeal(a, goal) ? b : a));
+      }
     }
-    used.set(best.id, (used.get(best.id) ?? 0) + 1);
-    picked[slot] = best;
-    cals += best.calories;
-    prot += best.protein;
-    console.log(`[generatePlan] ${dayLabel} ${slot}: ratio-pick → "${best.name}" (id=${best.id})`);
+    for (const slot of Object.keys(picks) as MealKey[]) {
+      const m = picks[slot]!;
+      // Count one prior serving per covered day so the other segment (and
+      // per-day fresh picks) see an escalating reuse penalty.
+      usedThisWeek[slot].set(m.id, (usedThisWeek[slot].get(m.id) ?? 0) + seg.positions.length);
+      console.log(`[generatePlan] ${weekLabel} ${seg.sessionDay}-prep ${slot}: "${m.name}" (id=${m.id}) × ${seg.positions.length} days`);
+    }
+    return picks;
+  });
+
+  // ── Per-day composition ──────────────────────────────────────────────────
+  const legacyIdx: Record<MealKey, number> = { breakfast: 0, lunch: 0, dinner: 0, snack: 0 };
+  const days: Record<MealKey, Meal>[] = [];
+  for (let d = 0; d < weekLength; d++) {
+    const segIdx = segments.findIndex((s) => s.positions.includes(d));
+    const batch = segIdx >= 0 ? segPicks[segIdx] : {};
+    // Sunday (no segment): every slot is fresh, big slots first so the
+    // corrective picking has room to steer.
+    const freeSlots: MealKey[] = segIdx >= 0
+      ? (batchSnack ? ["breakfast"] : ["breakfast", "snack"])
+      : ["dinner", "lunch", "breakfast", "snack"];
+    const dayPicks: Partial<Record<MealKey, Meal>> = { ...batch };
+
+    if (targetRatio !== null) {
+      let fixedCal = 0, fixedProt = 0;
+      for (const slot of Object.keys(batch) as MealKey[]) {
+        fixedCal += batch[slot]!.calories;
+        fixedProt += batch[slot]!.protein;
+      }
+      for (let i = 0; i < freeSlots.length; i++) {
+        const slot = freeSlots[i];
+        const pool = prep[slot].fresh;
+        let expCal = 0, expProt = 0;
+        for (const r of freeSlots.slice(i + 1)) { const m = poolMeans(prep[r].fresh); expCal += m.cal; expProt += m.prot; }
+        // Jitter fades to zero on the last free slot — it stays purely
+        // corrective so the day still lands on target.
+        const jitterScale = freeSlots.length > 1 ? (freeSlots.length - 1 - i) / (freeSlots.length - 1) : 0;
+        let best = pool[0], bestScore = Infinity;
+        for (const m of pool) {
+          const score = scoreOf(m, slot, fixedCal, fixedProt, expCal, expProt, jitterScale, CROSS_WEEK_PENALTY);
+          if (score < bestScore - 1e-9) { best = m; bestScore = score; }
+        }
+        dayPicks[slot] = best;
+        usedThisWeek[slot].set(best.id, (usedThisWeek[slot].get(best.id) ?? 0) + 1);
+        fixedCal += best.calories;
+        fixedProt += best.protein;
+        console.log(`[generatePlan] ${weekLabel} ${DAY_NAMES[d]} ${slot}: fresh pick → "${best.name}" (id=${best.id})`);
+      }
+    } else {
+      for (const slot of freeSlots) {
+        const pool = prep[slot].fresh;
+        const meal = pool[legacyIdx[slot] % pool.length];
+        legacyIdx[slot]++;
+        dayPicks[slot] = meal;
+        usedThisWeek[slot].set(meal.id, (usedThisWeek[slot].get(meal.id) ?? 0) + 1);
+        console.log(`[generatePlan] ${weekLabel} ${DAY_NAMES[d]} ${slot}: fresh cycle → "${meal.name}" (id=${meal.id})`);
+      }
+    }
+    days.push(dayPicks as Record<MealKey, Meal>);
   }
-  return picked;
+  return days;
+}
+
+// ── Prep Session Derivation ───────────────────────────────────────────────────
+// Built from the FINAL day assignments (after swaps and portion scaling), so a
+// swap that breaks a batch group automatically demotes that day's slot to
+// fresh and shrinks the batch. A slot is a session recipe when the same batch
+// meal covers ≥2 of the segment's days. Batch ingredient amounts sum the
+// covered days' scaled per-serving amounts — one batch for the whole segment,
+// not one cook per day (and portion scaling stays accounted for).
+
+function derivePrepSessions(weekDays: DayMeals[], weekIndex: number): PrepSession[] {
+  for (const day of weekDays) {
+    day.slotSources = { breakfast: "fresh", lunch: "fresh", dinner: "fresh", snack: "fresh" };
+  }
+  const sessions: PrepSession[] = [];
+  for (const seg of PREP_SEGMENTS) {
+    const positions = seg.positions.filter((p) => p < weekDays.length);
+    if (positions.length === 0) continue;
+    const recipes: PrepRecipe[] = [];
+    const slotOrder: MealKey[] = ["lunch", "dinner", "snack", "breakfast"];
+    for (const slot of slotOrder) {
+      const groups = new Map<string, number[]>();
+      for (const p of positions) {
+        const id = weekDays[p][slot].id;
+        if (!groups.has(id)) groups.set(id, []);
+        groups.get(id)!.push(p);
+      }
+      for (const [id, ps] of Array.from(groups.entries())) {
+        const base = meals.find((m) => m.id === id);
+        if (!base || base.prepType !== "batch" || ps.length < 2) continue;
+        const totalMult = ps.reduce((s: number, p: number) => s + (weekDays[p][slot].portionMultiplier ?? 1), 0);
+        recipes.push({
+          meal: weekDays[ps[0]][slot],
+          slot,
+          servingsToCook: ps.length,
+          batchServings: base.batchServings ?? ps.length,
+          coveredDayIndexes: ps.map((p) => weekDays[p].dayIndex),
+          coveredDays: ps.map((p) => weekDays[p].day),
+          storageInstructions: base.storageInstructions ?? "Refrigerate portions in airtight containers up to 4 days.",
+          reheatInstructions: base.reheatInstructions ?? "Microwave 2 minutes until steaming, stirring halfway.",
+          batchIngredients: base.ingredients.map((ing) => ({
+            ...ing,
+            amount: scaleIngredientAmount(ing.amount, totalMult),
+          })),
+        });
+        const source: SlotSource = seg.sessionDay === "Sunday" ? "sunday-prep" : "wednesday-prep";
+        for (const p of ps) weekDays[p].slotSources[slot] = source;
+      }
+    }
+    if (recipes.length > 0) {
+      const first = weekDays[positions[0]].day;
+      const last = weekDays[positions[positions.length - 1]].day;
+      sessions.push({
+        weekIndex,
+        sessionDay: seg.sessionDay,
+        title: `${seg.sessionDay} Prep`,
+        coversLabel: positions.length > 1 ? `Covers ${first} – ${last}` : `Covers ${first}`,
+        recipes,
+      });
+    }
+  }
+  return sessions;
 }
 
 // ── Main Export ───────────────────────────────────────────────────────────────
@@ -1061,38 +1434,11 @@ export function generatePlan(
     ` | protein: ${cartProtein}g (target ${weeklyProteinTarget ?? "—"}g)`
   );
 
-  // ── Step 3: Validate targets & generate budget cap message ────────────────────
-  const calsMet     = cartCals >= weeklyCalTarget * 0.90;
-  const proteinMet  = weeklyProteinTarget ? cartProtein >= weeklyProteinTarget * 0.85 : true;
-
+  // ── Step 3: Budget messaging happens AFTER the real carts are built ──────────
+  // The provisioning cart above only decides which meals are cookable; the true
+  // weekly cost is known once each week's final scaled meals produce their
+  // requirement-driven cart (Step 8), so honest budget messages are composed there.
   let budgetCapMessage: string | undefined;
-  if (!calsMet || !proteinMet) {
-    // Estimate the minimum budget that would hit both targets.
-    const bestCalPerDollar = Math.max(
-      ...Object.entries(PURCHASABLE_MAP)
-        .filter(([, d]) => d.calsPerPkg)
-        .map(([, d]) => d.calsPerPkg! / (d.price * stateMultiplier))
-    );
-    const bestProteinPerDollar = weeklyProteinTarget
-      ? Math.max(
-          ...Object.entries(PURCHASABLE_MAP)
-            .filter(([k]) => PROTEIN_PER_PKG[k])
-            .map(([k, d]) => PROTEIN_PER_PKG[k]! / (d.price * stateMultiplier))
-        )
-      : 0;
-    const minProteinCost  = weeklyProteinTarget ? weeklyProteinTarget / bestProteinPerDollar : 0;
-    const minRemainingCal = Math.max(0, weeklyCalTarget - (weeklyProteinTarget ? weeklyProteinTarget * 4 : 0));
-    const minCalCost      = minRemainingCal / bestCalPerDollar;
-    const minBudget       = Math.ceil((minProteinCost + minCalCost) * 1.15); // 15% buffer for variety
-
-    const calStr = `${Math.round(cartCals / 7).toLocaleString()} cal`;
-    const protStr = dailyProteinTarget ? ` / ${Math.round(cartProtein / 7)}g protein` : "";
-    const tgtStr = `${dailyCals.toLocaleString()} cal${dailyProteinTarget ? ` / ${dailyProteinTarget}g protein` : ""}`;
-    budgetCapMessage =
-      `Your $${perPersonBudget}/week budget provides approximately ${calStr}${protStr} per day ` +
-      `toward your ${tgtStr} goal. ` +
-      `Increase your budget to $${minBudget}/week to fully hit your targets.`;
-  }
 
   // ── Step 4: Seed the RNG ──────────────────────────────────────────────────────
   const goalIndex = ["muscle_gain","fat_loss","maintenance","endurance","general_health"].indexOf(goal) + 1;
@@ -1127,92 +1473,65 @@ export function generatePlan(
     budgetCapMessage = budgetCapMessage ? `${budgetCapMessage} ${dietMsg}` : dietMsg;
   }
 
-  // ── Step 6: Assign 7 days of meals ───────────────────────────────────────────
-  const week1Days: DayMeals[] = [];
-  const usedTracker = freshUsedTracker();
+  // ── Step 6: Compose week 1 around its two prep sessions ─────────────────────
+  // Sunday prep covers Monday–Wednesday, Wednesday prep covers Thursday–
+  // Saturday; batch lunches/dinners (and a batch snack when cookable) repeat
+  // across their session's days. Breakfasts and Sunday are fresh.
   const week1Length = Math.min(totalDays, 7);
-  const freshUsedSets = (): Record<MealKey, Map<string, number>> =>
-    ({ breakfast: new Map(), lunch: new Map(), dinner: new Map(), snack: new Map() });
-  const week1Used = freshUsedSets();
+  const week1Picks = composeWeekPrep(
+    { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
+    week1Length, new Set(), targetProteinRatio, calorieTarget ?? null, goal, rng, "week 1");
 
-  for (let i = 0; i < week1Length; i++) {
-    const { breakfast, lunch, dinner, snack } = targetProteinRatio
-      ? selectDayMealsForRatio(
-          { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
-          week1Used, new Set(), targetProteinRatio, calorieTarget ?? null, DAY_NAMES[i % 7], rng)
-      : selectDayMeals(bPool, lPool, dPool, sPool, usedTracker, DAY_NAMES[i % 7]);
-    week1Days.push({
-      day: DAY_NAMES[i % 7],
-      date: formatDate(i),
-      weekIndex: 0,
-      dayIndex: i,
-      breakfast, lunch, dinner, snack,
-      dailyCalories: breakfast.calories + lunch.calories + dinner.calories + snack.calories,
-      dailyProtein:  breakfast.protein  + lunch.protein  + dinner.protein  + snack.protein,
-      dailyCarbs:    breakfast.carbs    + lunch.carbs    + dinner.carbs    + snack.carbs,
-      dailyFat:      breakfast.fat      + lunch.fat      + dinner.fat      + snack.fat,
-      dailyCost:     +(breakfast.cost   + lunch.cost     + dinner.cost     + snack.cost).toFixed(2),
-    });
-  }
-
-  // ── Step 7: Balance calorie distribution across days ─────────────────────────
-  // The ratio-aware selector already balances day size (calorie-floor term) and
-  // pairs meals by protein density per day — cross-day swaps would scramble
-  // that pairing, so the balancer only runs for the legacy selector.
-  if (!targetProteinRatio) balanceDailyCalories(week1Days);
-
-  // ── Step 7.5: Apply user meal swaps ──────────────────────────────────────────
-  // Swaps replace the deterministic pick for a (day, slot). They run after
-  // balancing (so day indices are final) and before portion scaling. The cart
-  // pruning in Step 9 then drops ingredients only the swapped-out meal used;
-  // Step 9.5 buys anything the swapped-in meal still needs, budget permitting.
-  const swappedInMeals: Meal[] = [];
+  // Resolve user swaps once (they replace the deterministic pick for a
+  // (day, slot) and are valid only against this salt). The week factory below
+  // re-applies them on every budget-fit pass.
+  const resolvedSwaps: Array<{ idx: number; slot: MealKey; meal: Meal }> = [];
   for (const sw of swaps) {
     const idx = sw.dayIndex % 7;
-    if (idx >= week1Days.length) continue;
+    if (idx >= week1Length) continue;
     const replacement = meals.find((m) => m.id === sw.mealId);
     if (!replacement || replacement.type !== sw.slot) continue;
-    week1Days[idx][sw.slot] = replacement;
-    swappedInMeals.push(replacement);
-    recomputeDayTotals(week1Days[idx]);
+    resolvedSwaps.push({ idx, slot: sw.slot, meal: replacement });
     console.log(`[generatePlan] swap applied — day ${idx} ${sw.slot} → "${replacement.name}" (id=${replacement.id})`);
   }
 
-  // ── Step 8: Scale portions to hit the daily calorie target ────────────────────
-  const portionCapped = calorieTarget ? scaleWeekToCalorieTarget(week1Days, calorieTarget, dailyProteinTarget) : false;
-
-  if (portionCapped && budgetCapMessage === undefined && calorieTarget) {
-    const avgCal = Math.round(week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length);
-    if (avgCal < Math.round(calorieTarget * 0.95)) {
-      budgetCapMessage =
-        `Portions capped at ${calorieTarget > avgCal ? "2×" : "0.5×"} — plan averages ` +
-        `${avgCal.toLocaleString()} cal/day vs your ${calorieTarget.toLocaleString()} cal goal. ` +
-        `Consider a higher budget or fewer dietary restrictions.`;
+  // Assembles a fresh, unscaled week from picks. finalizeWeek calls this each
+  // budget-fit pass since portion scaling mutates the days in place.
+  const assembleWeek = (
+    picks: Record<MealKey, Meal>[],
+    weekIndex: number,
+    weekLength: number
+  ): DayMeals[] => {
+    const daysOut: DayMeals[] = [];
+    for (let i = 0; i < weekLength; i++) {
+      const { breakfast, lunch, dinner, snack } = picks[i];
+      const day: DayMeals = {
+        day: DAY_NAMES[i % 7],
+        date: formatDate(weekIndex * 7 + i),
+        weekIndex,
+        dayIndex: weekIndex * 7 + i,
+        breakfast, lunch, dinner, snack,
+        dailyCalories: 0, dailyProtein: 0, dailyCarbs: 0, dailyFat: 0, dailyCost: 0,
+        slotSources: { breakfast: "fresh", lunch: "fresh", dinner: "fresh", snack: "fresh" },
+      };
+      recomputeDayTotals(day);
+      daysOut.push(day);
     }
-  }
-
-  // ── Step 9: Prune week 1's cart to items its selected meals use ──────────────
-  const finalEntries = pruneCartToWeek(cartEntries, week1Days, "week 1");
-
-  // ── Step 9.5: Buy ingredients swapped-in meals still need ───────────────────
-  // The swap UI only offers cart-eligible meals, so this is normally a no-op,
-  // but if a swapped meal needs something the prune just freed budget for,
-  // buy it as long as the cart stays within budget.
-  if (swappedInMeals.length > 0) {
-    let cartCost = +finalEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2);
-    for (const meal of swappedInMeals) {
-      for (const { key, def } of collectMissingProducts(meal, finalEntries)) {
-        const entry = makeCartEntry(key, def, 1, stateMultiplier);
-        if (cartCost + entry.totalCost > perPersonBudget) {
-          console.warn(`[generatePlan] swap: skipping "${key}" — would exceed budget`);
-          continue;
-        }
-        finalEntries.push(entry);
-        cartCost = +(cartCost + entry.totalCost).toFixed(2);
-        console.log(`[generatePlan] swap: bought missing ingredient "${key}" ($${entry.totalCost})`);
+    if (weekIndex === 0) {
+      for (const sw of resolvedSwaps) {
+        daysOut[sw.idx][sw.slot] = sw.meal;
+        recomputeDayTotals(daysOut[sw.idx]);
       }
     }
-  }
+    return daysOut;
+  };
+
+  // ── Step 8: Finalize week 1 — scale portions, build its REAL cart, fit budget ─
+  const fin1 = finalizeWeek(
+    () => assembleWeek(week1Picks, 0, week1Length),
+    0, calorieTarget ?? null, dailyProteinTarget, perPersonBudget, stateMultiplier, "week 1");
+  const week1Days = fin1.days;
+  const portionCapped = fin1.portionCapped;
 
   // ── Step 10: Generate remaining weeks (seeded planSalt + weekIndex) ──────────
   // Each later week re-runs pool building and meal selection against the SAME
@@ -1224,7 +1543,12 @@ export function generatePlan(
   // excluded — the catalog (~28 meals/slot) can't fill a month repeat-free.
   // Determinism: planSalt + weekIndex always yields the same week and cart.
   const days: DayMeals[] = [...week1Days];
-  const weeklyCarts: WeeklyCartSummary[] = [cartSummaryFromEntries(finalEntries)];
+  const weeklyCarts: WeeklyCartSummary[] = [fin1.cart];
+  // Prep sessions derive from the FINAL day assignments (post-swap,
+  // post-scaling), so week 1's guide reflects any user swaps.
+  const prepSessions: PrepSession[][] = [fin1.sessions];
+  const weekScales: number[] = [fin1.scale];
+  const weekFullCosts: number[] = [fin1.fullCost];
   const usedAcrossWeeks = new Set<string>();
   for (const day of week1Days) {
     for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
@@ -1238,38 +1562,22 @@ export function generatePlan(
     const wdPool = buildFinalPool("dinner",    cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
     const wsPool = buildFinalPool("snack",     cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
 
-    const weekDays: DayMeals[] = [];
-    const weekTracker = freshUsedTracker();
-    const weekUsed = freshUsedSets();
     const weekLength = Math.min(totalDays - w * 7, 7);
-    for (let i = 0; i < weekLength; i++) {
-      const dayIndex = w * 7 + i;
-      const { breakfast, lunch, dinner, snack } = targetProteinRatio
-        ? selectDayMealsForRatio(
-            { breakfast: wbPool, lunch: wlPool, dinner: wdPool, snack: wsPool },
-            weekUsed, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, `wk${w + 1} ${DAY_NAMES[i]}`, weekRng)
-        : selectDayMeals(wbPool, wlPool, wdPool, wsPool, weekTracker, `wk${w + 1} ${DAY_NAMES[i]}`);
-      weekDays.push({
-        day: DAY_NAMES[i],
-        date: formatDate(dayIndex),
-        weekIndex: w,
-        dayIndex,
-        breakfast, lunch, dinner, snack,
-        dailyCalories: breakfast.calories + lunch.calories + dinner.calories + snack.calories,
-        dailyProtein:  breakfast.protein  + lunch.protein  + dinner.protein  + snack.protein,
-        dailyCarbs:    breakfast.carbs    + lunch.carbs    + dinner.carbs    + snack.carbs,
-        dailyFat:      breakfast.fat      + lunch.fat      + dinner.fat      + snack.fat,
-        dailyCost:     +(breakfast.cost   + lunch.cost     + dinner.cost     + snack.cost).toFixed(2),
-      });
-    }
+    const weekPicks = composeWeekPrep(
+      { breakfast: wbPool, lunch: wlPool, dinner: wdPool, snack: wsPool },
+      weekLength, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, goal, weekRng, `week ${w + 1}`);
 
-    if (!targetProteinRatio) balanceDailyCalories(weekDays);
-    if (calorieTarget) scaleWeekToCalorieTarget(weekDays, calorieTarget, dailyProteinTarget);
-    for (const day of weekDays) {
+    const fin = finalizeWeek(
+      () => assembleWeek(weekPicks, w, weekLength),
+      w, calorieTarget ?? null, dailyProteinTarget, perPersonBudget, stateMultiplier, `week ${w + 1}`);
+    for (const day of fin.days) {
       for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
     }
-    days.push(...weekDays);
-    weeklyCarts.push(cartSummaryFromEntries(pruneCartToWeek(cartEntries, weekDays, `week ${w + 1}`)));
+    days.push(...fin.days);
+    weeklyCarts.push(fin.cart);
+    prepSessions.push(fin.sessions);
+    weekScales.push(fin.scale);
+    weekFullCosts.push(fin.fullCost);
   }
 
   const weeks: DayMeals[][] = Array.from({ length: numWeeks }, (_, w) => days.slice(w * 7, w * 7 + 7));
@@ -1277,7 +1585,34 @@ export function generatePlan(
   const avgDailyCalories = Math.round(days.reduce((s, d) => s + d.dailyCalories, 0) / days.length);
   const avgDailyProtein  = Math.round(days.reduce((s, d) => s + d.dailyProtein,  0) / days.length);
 
-  // ── Step 11: Return the per-week pruned carts ─────────────────────────────────
+  // ── Step 9 (cont.): Honest budget messaging from the REAL carts ──────────────
+  // Composed here because the genuine weekly cost only exists after every
+  // week's requirement-driven cart is built. Never reports "under budget" when
+  // the truth is reduced portions.
+  const minScale = Math.min(...weekScales);
+  const maxFullCost = Math.max(...weekFullCosts);
+  const overBudgetWeek = weeklyCarts.findIndex((c) => c.totalCost > perPersonBudget + 0.005);
+  let budgetMsg: string | undefined;
+  if (overBudgetWeek >= 0) {
+    budgetMsg =
+      `Week ${overBudgetWeek + 1}'s groceries cost $${weeklyCarts[overBudgetWeek].totalCost.toFixed(2)} ` +
+      `even at minimum portions — your $${perPersonBudget}/week budget can't cover your targets. ` +
+      `Increase your budget to $${Math.ceil(maxFullCost)}/week to fully fund them.`;
+  } else if (minScale < 0.995 && calorieTarget) {
+    budgetMsg =
+      `Full portions for your ${dailyCals.toLocaleString()} cal/day target cost up to ` +
+      `$${maxFullCost.toFixed(2)}/week in groceries. Portions were reduced to ~${Math.round(minScale * 100)}% ` +
+      `(averaging ${avgDailyCalories.toLocaleString()} cal/day) so each week's groceries fit your ` +
+      `$${perPersonBudget}/week budget. Increase your budget to $${Math.ceil(maxFullCost)}/week for full portions.`;
+  } else if (portionCapped && calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.95)) {
+    budgetMsg =
+      `Portions capped at ${calorieTarget > avgDailyCalories ? "2×" : "0.5×"} — plan averages ` +
+      `${avgDailyCalories.toLocaleString()} cal/day vs your ${calorieTarget.toLocaleString()} cal goal. ` +
+      `Consider a higher budget or fewer dietary restrictions.`;
+  }
+  if (budgetMsg) budgetCapMessage = budgetCapMessage ? `${budgetMsg} ${budgetCapMessage}` : budgetMsg;
+
+  // ── Step 11: Return the per-week requirement-driven carts ─────────────────────
   const weeklyEstimatedCost = weeklyCarts[0].totalCost;
   const totalPlanCost = +weeklyCarts.reduce((s, c) => s + c.totalCost, 0).toFixed(2);
 
@@ -1295,5 +1630,8 @@ export function generatePlan(
     budgetCapMessage,
     cartFallbackUsed: cartFallbackUsed || undefined,
     weeklyCarts,
+    prepSessions,
+    weeklyPortionScale: weekScales,
+    weeklyFullCost: weekFullCosts,
   };
 }

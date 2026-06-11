@@ -41,7 +41,8 @@
       "Bash(supabase migration *)",
       "Bash(npx supabase *)",
       "Bash(awk *)",
-      "Bash(npx -y tsx --tsconfig tsconfig.json /tmp/test-multiweek.ts)"
+      "Bash(npx -y tsx --tsconfig tsconfig.json /tmp/test-multiweek.ts)",
+      "Bash(echo \"tsc exit: $?\")"
     ]
   }
 }
