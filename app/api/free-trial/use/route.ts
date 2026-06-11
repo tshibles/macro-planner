@@ -50,19 +50,9 @@ export async function POST(req: Request) {
     goalTimeframe = null,
   } = body;
 
-  const { error } = await supabase
-    .from("profiles")
-    .upsert({ id: user.id, free_trial_used: true }, { onConflict: "id" });
-
-  if (error) {
-    return NextResponse.json(
-      { error: "Failed to record trial" },
-      { status: 500 }
-    );
-  }
-
-  // free_trial_used stays true permanently; this row is what actually grants
-  // 7 days of access via the subscriptions status check.
+  // This row is what actually grants 7 days of access via the subscriptions
+  // status check. Insert it before marking the trial used so a failure here
+  // doesn't burn the user's only trial.
   const expiresAt = new Date(
     Date.now() + 7 * 24 * 60 * 60 * 1000
   ).toISOString();
@@ -73,11 +63,23 @@ export async function POST(req: Request) {
       user_id: user.id,
       plan_tier: "free",
       plan_expires_at: expiresAt,
+      stripe_session_id: `free-trial-${user.id}`,
     });
 
   if (subError) {
     return NextResponse.json(
       { error: "Failed to activate trial access" },
+      { status: 500 }
+    );
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .upsert({ id: user.id, free_trial_used: true }, { onConflict: "id" });
+
+  if (error) {
+    return NextResponse.json(
+      { error: "Failed to record trial" },
       { status: 500 }
     );
   }
