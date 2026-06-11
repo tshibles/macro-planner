@@ -1,7 +1,7 @@
 import { meals, Meal, DietaryFlag } from "@/app/data/meals";
 import { STATE_MULTIPLIERS } from "@/app/data/stateMultipliers";
 import { normalizeKey } from "@/app/lib/normalizeIngredient";
-import { isPantryStaple, computePurchasable, PURCHASABLE_MAP, lookupPurchasable } from "@/app/data/purchasableUnits";
+import { isPantryStaple, computePurchasable, PURCHASABLE_MAP, lookupPurchasable, PurchasableUnitDef } from "@/app/data/purchasableUnits";
 
 export interface CartItem {
   key: string;
@@ -234,11 +234,53 @@ const INGREDIENT_FLAGS: Record<string, DietaryFlag[]> = {
 };
 
 // ── Cart Builder ──────────────────────────────────────────────────────────────
-// Builds the weekly grocery cart in three phases:
-//   1. Proteins — hit the weekly protein target within the protein budget.
-//   2. Carbs    — hit the remaining calorie gap with cheapest cal/$ staples.
-//   3. Variety  — spend leftover budget on produce, bread, and extras that
-//                 unlock the widest pool of eligible meals.
+// Builds the weekly grocery cart in four phases:
+//   1. Proteins      — hit the weekly protein target within the protein budget.
+//   2. Carbs         — hit the remaining calorie gap with cheapest cal/$ staples.
+//   3. Meal variety  — buy the missing ingredients of the best-scoring meals,
+//                      round-robin across slots, until every slot has 7 cookable
+//                      meals or the budget runs out (expandCartForMealVariety).
+//   4. Extras        — spend leftover budget on breadth staples (spendRemainingOnVariety).
+
+const productId = (price: number, unit: string) => `${price}-${unit}`;
+
+function entryInCart(cartEntries: CartEntry[], price: number, unit: string): boolean {
+  return cartEntries.some((e) => Math.abs(e.defPrice - price) < 0.01 && e.defUnit === unit);
+}
+
+function makeKeyFilter(diets: string[], allergies: string[]): (key: string) => boolean {
+  const excludedFlags = new Set<DietaryFlag>();
+  for (const diet of diets) for (const flag of EXCLUDED_FLAGS[diet] ?? []) excludedFlags.add(flag);
+  const allergyRoots = allergies.map((a) => a.toLowerCase().trim().replace(/s$/i, ""));
+  return (key: string) => {
+    const flags = INGREDIENT_FLAGS[key] ?? [];
+    if (flags.some((f) => excludedFlags.has(f))) return false;
+    if (allergyRoots.some((r) => key.includes(r))) return false;
+    return true;
+  };
+}
+
+function pluralUnit(unit: string, n: number): string {
+  return n === 1 ? `1 ${unit}` : `${n} ${unit.replace(/^([a-z]+)/i, (w) =>
+    w.endsWith("ch") || w.endsWith("x") ? w + "es" : w + "s")}`;
+}
+
+function makeCartEntry(key: string, def: PurchasableUnitDef, packages: number, stateMultiplier: number): CartEntry {
+  const ppu = +(def.price * stateMultiplier).toFixed(2);
+  return {
+    key,
+    displayName: key.replace(/\b\w/g, (c) => c.toUpperCase()),
+    category: categorizeIngredient(key),
+    packages,
+    purchaseLabel: pluralUnit(def.unit, packages),
+    pricePerUnit: ppu,
+    totalCost: +(ppu * packages).toFixed(2),
+    defPrice: def.price,
+    defUnit: def.unit,
+    proteinG: (PROTEIN_PER_PKG[key] ?? 0) * packages,
+    cals: (def.calsPerPkg ?? 0) * packages,
+  };
+}
 
 function buildTargetedCart(
   goal: string,
@@ -248,38 +290,8 @@ function buildTargetedCart(
   weeklyCalTarget: number,
   weeklyProteinTarget: number | null,
   stateMultiplier: number
-): { entries: CartEntry[]; totalCals: number; totalProtein: number; totalCost: number } {
-  const excludedFlags = new Set<DietaryFlag>();
-  for (const diet of diets) for (const flag of EXCLUDED_FLAGS[diet] ?? []) excludedFlags.add(flag);
-  const allergyRoots = allergies.map((a) => a.toLowerCase().trim().replace(/s$/i, ""));
-
-  const isAllowedKey = (key: string) => {
-    const flags = INGREDIENT_FLAGS[key] ?? [];
-    if (flags.some((f) => excludedFlags.has(f))) return false;
-    if (allergyRoots.some((r) => key.includes(r))) return false;
-    return true;
-  };
-
-  const pluralUnit = (unit: string, n: number) =>
-    n === 1 ? `1 ${unit}` : `${n} ${unit.replace(/^([a-z]+)/i, (w) =>
-      w.endsWith("ch") || w.endsWith("x") ? w + "es" : w + "s")}`;
-
-  const addEntry = (key: string, packages: number, pricePerUnit: number): CartEntry => {
-    const def = PURCHASABLE_MAP[key]!;
-    return {
-      key,
-      displayName: key.replace(/\b\w/g, (c) => c.toUpperCase()),
-      category: categorizeIngredient(key),
-      packages,
-      purchaseLabel: pluralUnit(def.unit, packages),
-      pricePerUnit,
-      totalCost: +(pricePerUnit * packages).toFixed(2),
-      defPrice: def.price,
-      defUnit: def.unit,
-      proteinG: (PROTEIN_PER_PKG[key] ?? 0) * packages,
-      cals: (def.calsPerPkg ?? 0) * packages,
-    };
-  };
+): { entries: CartEntry[]; budgetLeft: number } {
+  const isAllowedKey = makeKeyFilter(diets, allergies);
 
   const cart: CartEntry[] = [];
   const cartKeys = new Set<string>();
@@ -289,6 +301,10 @@ function buildTargetedCart(
   let calsAcquired = 0;
 
   // ── Phase 1: Proteins ────────────────────────────────────────────────────────
+  // When the user gave no body weight, derive an implicit goal from the calorie
+  // target (~25% of calories from protein) so this phase still terminates at a
+  // sane amount instead of buying one package of every protein in the catalog.
+  const weeklyProteinGoal = weeklyProteinTarget ?? Math.round((weeklyCalTarget * 0.25) / 4);
   const proteinBudgetFraction = goal === "muscle_gain" ? 0.5 : 0.4;
   let proteinBudget = weeklyBudget * proteinBudgetFraction;
 
@@ -298,7 +314,7 @@ function buildTargetedCart(
 
   // Build protein candidates sorted by protein-per-dollar descending.
   const proteinCandidates = Object.entries(PURCHASABLE_MAP)
-    .filter(([key, def]) => PROTEIN_PER_PKG[key] && isAllowedKey(key) && !PHASE1_EXCLUDED.has(key))
+    .filter(([key]) => PROTEIN_PER_PKG[key] && isAllowedKey(key) && !PHASE1_EXCLUDED.has(key))
     .map(([key, def]) => ({
       key,
       def,
@@ -310,33 +326,27 @@ function buildTargetedCart(
     .sort((a, b) => b.proteinPerDollar - a.proteinPerDollar);
 
   for (const c of proteinCandidates) {
-    if (proteinBudget <= 0) break;
-    const dedupeId = `${c.def.price}-${c.def.unit}`;
+    if (proteinBudget <= 0 || proteinAcquired >= weeklyProteinGoal) break;
+    const dedupeId = productId(c.def.price, c.def.unit);
     if (seenProduct.has(dedupeId)) continue;
     seenProduct.add(dedupeId);
 
-    const remaining = weeklyProteinTarget ? weeklyProteinTarget - proteinAcquired : 0;
-    const byProtein = weeklyProteinTarget ? Math.ceil(remaining / c.proteinPerPkg) : 1;
+    const byProtein = Math.ceil((weeklyProteinGoal - proteinAcquired) / c.proteinPerPkg);
     const byBudget = Math.floor(proteinBudget / c.ppu);
     if (byBudget < 1) continue; // skip proteins we can't afford (keeps budget tight)
     const packages = Math.min(byProtein, byBudget);
 
-    const entry = addEntry(c.key, packages, c.ppu);
+    const entry = makeCartEntry(c.key, c.def, packages, stateMultiplier);
     cart.push(entry);
     cartKeys.add(c.key);
-    seenProduct.add(dedupeId); // already added above, belt-and-suspenders
 
-    const spent = entry.totalCost;
-    proteinBudget -= spent;
-    budgetLeft -= spent;
+    proteinBudget -= entry.totalCost;
+    budgetLeft -= entry.totalCost;
     proteinAcquired += entry.proteinG;
     calsAcquired += entry.cals;
-
-    if (weeklyProteinTarget && proteinAcquired >= weeklyProteinTarget) break;
   }
 
   // ── Phase 2: Carbs for remaining calorie gap ─────────────────────────────────
-  const carbSeenProduct = new Set(seenProduct);
   const carbCandidates = Object.entries(PURCHASABLE_MAP)
     .filter(([key, def]) =>
       def.calsPerPkg &&
@@ -356,68 +366,163 @@ function buildTargetedCart(
   for (const c of carbCandidates) {
     const calsStillNeeded = weeklyCalTarget - calsAcquired;
     if (calsStillNeeded <= 0 || budgetLeft <= 0) break;
-    const dedupeId = `${c.def.price}-${c.def.unit}`;
-    if (carbSeenProduct.has(dedupeId)) continue;
-    carbSeenProduct.add(dedupeId);
+    const dedupeId = productId(c.def.price, c.def.unit);
+    if (seenProduct.has(dedupeId)) continue;
+    seenProduct.add(dedupeId);
 
     const byCal = Math.ceil(calsStillNeeded / c.def.calsPerPkg!);
     const byBudget = Math.floor(budgetLeft / c.ppu);
     if (byBudget < 1) break; // can't afford even one package — stop buying carbs
     const packages = Math.min(byCal, byBudget, 4); // cap at 4 per carb; loop continues to next
 
-    const entry = addEntry(c.key, packages, c.ppu);
+    const entry = makeCartEntry(c.key, c.def, packages, stateMultiplier);
     cart.push(entry);
     cartKeys.add(c.key);
     budgetLeft -= entry.totalCost;
     calsAcquired += entry.cals;
   }
 
-  // ── Phase 3: Variety (produce, bread, extras) ────────────────────────────────
-  // Priority order: (a) additional protein variety not yet bought,
-  // (b) essential produce that unlocks the most meals,
-  // (c) carb variety, (d) extras.
-  const varietyOrder = [
-    // (a) additional protein variety
-    "canned tuna", "salmon fillet", "egg whites", "extra-firm tofu",
-    "lentils", "chickpeas", "black beans",
-    // (b) produce essentials — buy 1 pkg each; onion/tomato need more
-    "baby spinach", "broccoli florets", "banana", "bell pepper",
-    "tomato", "onion",
-    // (c) carb variety — oats is a breakfast staple not guaranteed by Phase 2
-    "rolled oats", "whole wheat bread", "corn tortillas",
-    // (d) extras
-    "peanut butter", "plain greek yogurt", "low-fat cottage cheese",
-  ];
+  return { entries: cart, budgetLeft: +budgetLeft.toFixed(2) };
+}
 
-  // buy onion and tomato in slightly larger quantities
-  const qtyOverride: Record<string, number> = { tomato: 3, onion: 2 };
+// ── Phase 3: Meal-Aware Variety Expansion ─────────────────────────────────────
+// Buys the missing ingredients of concrete meals (best goal-score first), one
+// meal per slot per round-robin pass, until every slot has at least 7 cookable
+// meals or the budget runs out. Because purchases happen BEFORE pools are
+// built, every meal shown is fully purchasable — no post-hoc cart patching.
 
-  for (const key of varietyOrder) {
-    if (budgetLeft <= 0) break;
+const MEAL_SLOTS: Meal["type"][] = ["breakfast", "lunch", "dinner", "snack"];
+
+function collectMissingProducts(meal: Meal, cartEntries: CartEntry[]): Array<{ key: string; def: PurchasableUnitDef }> {
+  const missing: Array<{ key: string; def: PurchasableUnitDef }> = [];
+  for (const ing of meal.ingredients) {
+    const key = normalizeKey(ing.item);
+    if (isPantryStaple(key)) continue;
+    const def = lookupPurchasable(key);
+    if (!def) continue; // unknown ingredient — assume available
+    if (
+      !entryInCart(cartEntries, def.price, def.unit) &&
+      !missing.some((m) => Math.abs(m.def.price - def.price) < 0.01 && m.def.unit === def.unit)
+    ) {
+      missing.push({ key, def });
+    }
+  }
+  return missing;
+}
+
+function expandCartForMealVariety(
+  cartEntries: CartEntry[],
+  budgetRef: { remaining: number },
+  weeklyBudget: number,
+  diets: string[],
+  allergies: string[],
+  dislikedIds: Set<string>,
+  goal: string,
+  stateMultiplier: number
+): void {
+  // One expensive meal (e.g. one needing a $26 protein-powder tub) must not eat
+  // the whole variety budget — skip meals whose missing ingredients cost more.
+  const perMealCap = Math.max(8, weeklyBudget * 0.15);
+  const baseFilter = (m: Meal, type: Meal["type"]) =>
+    m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
+
+  const slots = MEAL_SLOTS.map((type) => ({
+    type,
+    count: meals.filter((m) => baseFilter(m, type) && mealEligibleFromCart(m, cartEntries)).length,
+    candidates: meals
+      .filter((m) => baseFilter(m, type) && !mealEligibleFromCart(m, cartEntries))
+      .sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal)),
+    idx: 0,
+  }));
+
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const slot of slots) {
+      if (slot.count >= 7) continue;
+      while (slot.idx < slot.candidates.length) {
+        const meal = slot.candidates[slot.idx++];
+        // A purchase made for another slot may have already unlocked this meal.
+        if (mealEligibleFromCart(meal, cartEntries)) {
+          slot.count++;
+          progress = true;
+          break;
+        }
+        const missing = collectMissingProducts(meal, cartEntries);
+        const cost = +missing
+          .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0)
+          .toFixed(2);
+        if (cost > perMealCap || cost > budgetRef.remaining) continue;
+        for (const { key, def } of missing) {
+          cartEntries.push(makeCartEntry(key, def, 1, stateMultiplier));
+        }
+        budgetRef.remaining = +(budgetRef.remaining - cost).toFixed(2);
+        slot.count++;
+        progress = true;
+        break;
+      }
+    }
+  }
+
+  for (const slot of slots) {
+    if (slot.count < 7) {
+      console.warn(`[generatePlan] ${slot.type}: budget exhausted at ${slot.count} cookable meals — will cycle`);
+    }
+  }
+}
+
+// ── Phase 4: Leftover Budget on Breadth Staples ───────────────────────────────
+// Priority order: (a) additional protein variety not yet bought,
+// (b) essential produce that unlocks the most meals,
+// (c) carb variety, (d) extras.
+
+const VARIETY_ORDER = [
+  // (a) additional protein variety
+  "canned tuna", "salmon fillet", "egg whites", "extra-firm tofu",
+  "lentils", "chickpeas", "black beans",
+  // (b) produce essentials — buy 1 pkg each; onion/tomato need more
+  "baby spinach", "broccoli florets", "banana", "bell pepper",
+  "tomato", "onion",
+  // (c) carb variety — oats is a breakfast staple not guaranteed by Phase 2
+  "rolled oats", "whole wheat bread", "corn tortillas",
+  // (d) extras
+  "peanut butter", "plain greek yogurt", "low-fat cottage cheese",
+];
+
+// buy onion and tomato in slightly larger quantities
+const VARIETY_QTY: Record<string, number> = { tomato: 3, onion: 2 };
+
+function spendRemainingOnVariety(
+  cartEntries: CartEntry[],
+  budgetRef: { remaining: number },
+  diets: string[],
+  allergies: string[],
+  stateMultiplier: number
+): void {
+  const isAllowedKey = makeKeyFilter(diets, allergies);
+  const cartKeys = new Set(cartEntries.map((e) => e.key));
+  const seenProduct = new Set(cartEntries.map((e) => productId(e.defPrice, e.defUnit)));
+
+  for (const key of VARIETY_ORDER) {
+    if (budgetRef.remaining <= 0) break;
     if (cartKeys.has(key)) continue;
     if (!isAllowedKey(key)) continue;
     const def = PURCHASABLE_MAP[key];
     if (!def) continue;
 
-    const dedupeId = `${def.price}-${def.unit}`;
+    const dedupeId = productId(def.price, def.unit);
     if (seenProduct.has(dedupeId)) continue;
-    seenProduct.add(dedupeId);
 
     const ppu = +(def.price * stateMultiplier).toFixed(2);
-    const wantPkgs = qtyOverride[key] ?? 1;
-    const packages = Math.min(wantPkgs, Math.floor(budgetLeft / ppu));
+    const packages = Math.min(VARIETY_QTY[key] ?? 1, Math.floor(budgetRef.remaining / ppu));
     if (packages < 1) continue;
+    seenProduct.add(dedupeId);
 
-    const entry = addEntry(key, packages, ppu);
-    cart.push(entry);
+    const entry = makeCartEntry(key, def, packages, stateMultiplier);
+    cartEntries.push(entry);
     cartKeys.add(key);
-    budgetLeft -= entry.totalCost;
-    calsAcquired += entry.cals;
-    proteinAcquired += entry.proteinG;
+    budgetRef.remaining = +(budgetRef.remaining - entry.totalCost).toFixed(2);
   }
-
-  const totalCost = +cart.reduce((s, e) => s + e.totalCost, 0).toFixed(2);
-  return { entries: cart, totalCals: calsAcquired, totalProtein: proteinAcquired, totalCost };
 }
 
 // ── Meal Eligibility ──────────────────────────────────────────────────────────
@@ -440,125 +545,54 @@ function mealEligibleFromCart(meal: Meal, cartEntries: CartEntry[]): boolean {
 
 // ── Pool Builder ──────────────────────────────────────────────────────────────
 // The cart is the budget controller — no budget-tier or cal/$ filtering.
-// A meal is eligible only if its non-pantry ingredients are in the cart.
+// A meal is eligible only if ALL its non-pantry ingredients are in the cart.
+// Phase 3 already bought ingredients to get each slot to 7 meals where the
+// budget allowed, so no fallback purchasing happens here.
 
 interface PoolResult {
   pool: Meal[];
-  usedRelaxedFallback: boolean;
-  usedDietaryFallback: boolean; // true = budget exhausted; pool may have <7 meals and will cycle
-  strictMealIds: Set<string>;
+  starved: boolean;      // pool has <7 meals — slot will cycle (repeats)
+  usedSafetyNet: boolean; // zero cart-eligible meals — showing allowed meals regardless of cart
+  dietRelaxed: boolean;   // catalog has zero meals for this slot matching the diet
 }
 
-function buildPoolFromCart(
+function buildFinalPool(
   type: Meal["type"],
   cartEntries: CartEntry[],
   diets: string[],
   allergies: string[],
   dislikedIds: Set<string>,
-  goal: string,
-  rng: () => number,
-  budgetRef: { remaining: number },
-  stateMultiplier: number
+  rng: () => number
 ): PoolResult {
   const baseFilter = (m: Meal) =>
     m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
 
-  const isInCart = (price: number, unit: string) =>
-    cartEntries.some((e) => Math.abs(e.defPrice - price) < 0.01 && e.defUnit === unit);
+  let pool = meals.filter((m) => baseFilter(m) && mealEligibleFromCart(m, cartEntries));
+  let usedSafetyNet = false;
+  let dietRelaxed = false;
 
-  // Strict: ALL non-pantry ingredients in cart.
-  const strictPool = meals.filter((m) => baseFilter(m) && mealEligibleFromCart(m, cartEntries));
-  const strictMealIds = new Set(strictPool.map((m) => m.id));
-  let pool = strictPool;
-  let usedRelaxedFallback = false;
-  let usedDietaryFallback = false;
-
-  // Relaxed fallback: ≥60% of mappable non-pantry ingredients in cart.
-  if (pool.length < 7) {
-    usedRelaxedFallback = true;
-    console.warn(`[generatePlan] ${type} strict pool has only ${pool.length} meals; relaxing to 60% ingredient match`);
-    pool = meals.filter((m) => {
-      if (!baseFilter(m)) return false;
-      const nonPantry = m.ingredients.filter((ing) => {
-        const k = normalizeKey(ing.item);
-        return !isPantryStaple(k) && lookupPurchasable(k) !== null;
-      });
-      if (nonPantry.length === 0) return true;
-      const matched = nonPantry.filter((ing) => {
-        const def = lookupPurchasable(normalizeKey(ing.item));
-        if (!def) return true;
-        return isInCart(def.price, def.unit);
-      });
-      return matched.length / nonPantry.length >= 0.6;
-    });
+  // Graduated safety net — the pool must never be empty (selection would crash).
+  // Relax in order: cart eligibility → dislikes → diet. Allergies are never relaxed.
+  if (pool.length === 0) {
+    pool = meals.filter(baseFilter);
+    usedSafetyNet = true;
+    console.warn(`[generatePlan] ${type}: no cart-eligible meals — safety-net pool (${pool.length})`);
+  }
+  if (pool.length === 0) {
+    pool = meals.filter((m) => m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies));
+  }
+  if (pool.length === 0) {
+    // The catalog simply has no meals of this type for the requested diet.
+    pool = meals.filter((m) => m.type === type && !hasAllergen(m, allergies));
+    dietRelaxed = true;
+    console.warn(`[generatePlan] ${type}: no meals match diet [${diets.join(",")}] — diet relaxed for this slot`);
+  }
+  if (pool.length === 0) {
+    pool = meals.filter((m) => m.type === type);
   }
 
-  // Budget-expansion fallback: buy missing ingredients for the best-scoring meals.
-  // Never shows a meal whose ingredients weren't actually purchased.
-  if (pool.length < 7) {
-    const poolIds = new Set(pool.map((m) => m.id));
-    const candidates = meals
-      .filter((m) => baseFilter(m) && !poolIds.has(m.id))
-      .sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
-
-    for (const meal of candidates) {
-      if (pool.length >= 7) break;
-
-      // Collect missing mappable non-pantry ingredients not yet in cartEntries.
-      const missing: Array<{ key: string; price: number; unit: string }> = [];
-      for (const ing of meal.ingredients) {
-        const key = normalizeKey(ing.item);
-        if (isPantryStaple(key)) continue;
-        const def = lookupPurchasable(key);
-        if (!def) continue;
-        if (
-          !isInCart(def.price, def.unit) &&
-          !missing.some((m) => Math.abs(m.price - def.price) < 0.01 && m.unit === def.unit)
-        ) {
-          missing.push({ key, price: def.price, unit: def.unit });
-        }
-      }
-
-      const expandCost = missing.reduce((s, { price }) => s + +(price * stateMultiplier).toFixed(2), 0);
-      if (expandCost > budgetRef.remaining) continue;
-
-      for (const { key, price, unit } of missing) {
-        const def = PURCHASABLE_MAP[key] ?? lookupPurchasable(key)!;
-        const ppu = +(price * stateMultiplier).toFixed(2);
-        budgetRef.remaining = +(budgetRef.remaining - ppu).toFixed(2);
-        cartEntries.push({
-          key,
-          displayName: key.replace(/\b\w/g, (c) => c.toUpperCase()),
-          category: categorizeIngredient(key),
-          packages: 1,
-          purchaseLabel: `1 ${unit}`,
-          pricePerUnit: ppu,
-          totalCost: ppu,
-          defPrice: price,
-          defUnit: unit,
-          proteinG: PROTEIN_PER_PKG[key] ?? 0,
-          cals: def.calsPerPkg ?? 0,
-        });
-      }
-      pool.push(meal);
-    }
-
-    if (pool.length < 7) {
-      // Budget exhausted before reaching 7 meals — pool will cycle through what was bought.
-      usedDietaryFallback = true;
-      console.warn(`[generatePlan] ${type} budget exhausted; pool has ${pool.length} meals — will cycle`);
-    }
-
-    // Absolute safety net: if dietary restrictions or allergies leave zero eligible meals.
-    if (pool.length === 0) {
-      pool = meals.filter(baseFilter);
-    }
-  }
-
-  const sorted = [...pool].sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal));
-  const shuffled = shuffle(sorted, rng);
-  console.log(`[generatePlan] ${type} pool: ${shuffled.length} meals (from cart)`);
-  return { pool: shuffled, usedRelaxedFallback, usedDietaryFallback, strictMealIds };
+  console.log(`[generatePlan] ${type} pool: ${pool.length} meals (from cart)`);
+  return { pool: shuffle(pool, rng), starved: pool.length < 7, usedSafetyNet, dietRelaxed };
 }
 
 // ── Grocery List Builder (kept for internal use) ───────────────────────────────
@@ -684,9 +718,18 @@ export function generatePlan(
   );
 
   // ── Step 2: Build the grocery cart ───────────────────────────────────────────
-  // Phase 1 → proteins, Phase 2 → carbs, Phase 3 → variety.
-  const { entries: cartEntries, totalCals: cartCals, totalProtein: cartProtein, totalCost: cartCost } =
+  // Phase 1 → proteins, Phase 2 → carbs, Phase 3 → meal-aware variety expansion,
+  // Phase 4 → leftover budget on breadth staples. All phases are budget-capped.
+  const { entries: cartEntries, budgetLeft } =
     buildTargetedCart(goal, diets, allergies, perPersonBudget, weeklyCalTarget, weeklyProteinTarget, stateMultiplier);
+
+  const budgetRef = { remaining: budgetLeft };
+  expandCartForMealVariety(cartEntries, budgetRef, perPersonBudget, diets, allergies, dislikedSet, goal, stateMultiplier);
+  spendRemainingOnVariety(cartEntries, budgetRef, diets, allergies, stateMultiplier);
+
+  const cartCost = +cartEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2);
+  const cartCals = cartEntries.reduce((s, e) => s + e.cals, 0);
+  const cartProtein = cartEntries.reduce((s, e) => s + e.proteinG, 0);
 
   console.log(
     `[generatePlan] cart built — cost: $${cartCost.toFixed(2)} / $${perPersonBudget}` +
@@ -735,20 +778,29 @@ export function generatePlan(
   const rng       = seededRng(seed);
 
   // ── Step 5: Build meal pools from the purchased cart ─────────────────────────
-  // budgetRef is shared across all four pool-builder calls so that ingredients
-  // bought to expand one slot's pool are immediately visible to later slots.
-  const budgetRef = { remaining: +(perPersonBudget - cartCost).toFixed(2) };
-  const bResult = buildPoolFromCart("breakfast", cartEntries, diets, allergies, dislikedSet, goal, rng, budgetRef, stateMultiplier);
-  const lResult = buildPoolFromCart("lunch",     cartEntries, diets, allergies, dislikedSet, goal, rng, budgetRef, stateMultiplier);
-  const dResult = buildPoolFromCart("dinner",    cartEntries, diets, allergies, dislikedSet, goal, rng, budgetRef, stateMultiplier);
-  const sResult = buildPoolFromCart("snack",     cartEntries, diets, allergies, dislikedSet, goal, rng, budgetRef, stateMultiplier);
+  // All purchasing already happened in Steps 2's phases; pools are strictly
+  // cart-eligible (plus the zero-meal safety net).
+  const bResult = buildFinalPool("breakfast", cartEntries, diets, allergies, dislikedSet, rng);
+  const lResult = buildFinalPool("lunch",     cartEntries, diets, allergies, dislikedSet, rng);
+  const dResult = buildFinalPool("dinner",    cartEntries, diets, allergies, dislikedSet, rng);
+  const sResult = buildFinalPool("snack",     cartEntries, diets, allergies, dislikedSet, rng);
   const bPool = bResult.pool;
   const lPool = lResult.pool;
   const dPool = dResult.pool;
   const sPool = sResult.pool;
 
-  if (bPool.length < 7 || lPool.length < 7 || dPool.length < 7 || sPool.length < 7) {
+  let cartFallbackUsed = false;
+  if ([bResult, lResult, dResult, sResult].some((r) => r.starved)) {
+    cartFallbackUsed = true;
     console.warn(`[generatePlan] one or more pools have fewer than 7 meals — repeats possible`);
+    const fallbackMsg =
+      "Budget exhausted before building a full 7-meal variety — some meal slots will repeat. Increase your weekly budget for more variety.";
+    budgetCapMessage = budgetCapMessage ? `${budgetCapMessage} ${fallbackMsg}` : fallbackMsg;
+  }
+  if ([bResult, lResult, dResult, sResult].some((r) => r.dietRelaxed)) {
+    const dietMsg =
+      "We don't yet have recipes for every meal slot matching your dietary preferences — some shown meals fall outside them.";
+    budgetCapMessage = budgetCapMessage ? `${budgetCapMessage} ${dietMsg}` : dietMsg;
   }
 
   // ── Step 6: Assign 7 days of meals ───────────────────────────────────────────
@@ -807,60 +859,28 @@ export function generatePlan(
     }
   }
 
-  // ── Cart Augmentation: add missing ingredients for relaxed-fallback meals ─────
-  // For any selected meal that only passed the 60% relaxed check (not strict),
-  // push its still-missing purchasable ingredients into cartEntries so the
-  // grocery list reflects everything the user actually needs to cook the plan.
-  const poolResultBySlot: Record<MealKey, PoolResult> = {
-    breakfast: bResult, lunch: lResult, dinner: dResult, snack: sResult,
-  };
-  const addedToCart = new Set<string>();
-  let cartFallbackUsed = false;
-
+  // ── Step 9: Prune cart items no selected meal uses ───────────────────────────
+  // Phases 1–2 buy by macro math, not by recipe, so the cart can contain items
+  // (e.g. a protein bought purely for its protein-per-dollar) that no selected
+  // meal cooks. Remove them so the grocery list matches the plan exactly.
+  const usedProducts = new Set<string>();
   for (const day of week1Days) {
-    for (const [slot, meal] of [
-      ["breakfast", day.breakfast], ["lunch", day.lunch],
-      ["dinner", day.dinner],       ["snack", day.snack],
-    ] as [MealKey, Meal][]) {
-      const res = poolResultBySlot[slot];
-      if (!res.usedRelaxedFallback || res.usedDietaryFallback) continue;
-      if (res.strictMealIds.has(meal.id)) continue;
+    for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
       for (const ing of meal.ingredients) {
         const key = normalizeKey(ing.item);
-        if (isPantryStaple(key) || addedToCart.has(key)) continue;
+        if (isPantryStaple(key)) continue;
         const def = lookupPurchasable(key);
-        if (!def) continue;
-        const inCart = cartEntries.some((e) => Math.abs(e.defPrice - def.price) < 0.01 && e.defUnit === def.unit);
-        if (inCart) continue;
-        addedToCart.add(key);
-        const ppu = +(def.price * stateMultiplier).toFixed(2);
-        cartEntries.push({
-          key,
-          displayName: key.replace(/\b\w/g, (c) => c.toUpperCase()),
-          category: categorizeIngredient(key),
-          packages: 1,
-          purchaseLabel: `1 ${def.unit}`,
-          pricePerUnit: ppu,
-          totalCost: ppu,
-          defPrice: def.price,
-          defUnit: def.unit,
-          proteinG: PROTEIN_PER_PKG[key] ?? 0,
-          cals: def.calsPerPkg ?? 0,
-        });
+        if (def) usedProducts.add(productId(def.price, def.unit));
       }
     }
   }
-
-  // Budget exhausted before reaching 7 meals in one or more slots — those slots will
-  // cycle through the smaller pool. All meals shown were actually purchased.
-  if ([bResult, lResult, dResult, sResult].some((r) => r.usedDietaryFallback)) {
-    cartFallbackUsed = true;
-    const fallbackMsg =
-      "Budget exhausted before building a full 7-meal variety — some meal slots will repeat. Increase your weekly budget for more variety.";
-    budgetCapMessage = budgetCapMessage ? `${budgetCapMessage} ${fallbackMsg}` : fallbackMsg;
+  const finalEntries = cartEntries.filter((e) => usedProducts.has(productId(e.defPrice, e.defUnit)));
+  const pruned = cartEntries.filter((e) => !usedProducts.has(productId(e.defPrice, e.defUnit)));
+  if (pruned.length > 0) {
+    console.log(`[generatePlan] pruned ${pruned.length} unused cart items: ${pruned.map((e) => e.key).join(", ")}`);
   }
 
-  // ── Step 9: Expand to full plan length ───────────────────────────────────────
+  // ── Step 10: Expand to full plan length ──────────────────────────────────────
   const days: DayMeals[] = Array.from({ length: totalDays }, (_, i) => {
     if (i < week1Days.length) return week1Days[i];
     return { ...week1Days[i % 7], day: DAY_NAMES[i % 7], date: formatDate(i), dayIndex: i, weekIndex: Math.floor(i / 7) };
@@ -870,11 +890,11 @@ export function generatePlan(
   const avgDailyCalories = Math.round(week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length);
   const avgDailyProtein  = Math.round(week1Days.reduce((s, d) => s + d.dailyProtein,  0) / week1Days.length);
 
-  // ── Step 10: Return cart from Step 2 as weeklyCart (augmented if fallback fired) ─
+  // ── Step 11: Return the pruned cart as weeklyCart ─────────────────────────────
   const weeklyCart: WeeklyCartSummary = {
-    items: cartEntries.map(({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost }) =>
+    items: finalEntries.map(({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost }) =>
       ({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost })),
-    totalCost: +cartEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2),
+    totalCost: +finalEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2),
   };
   const weeklyEstimatedCost = weeklyCart.totalCost;
   const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);

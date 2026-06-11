@@ -359,9 +359,17 @@ function PlanContent() {
   const heightInParam = params.get("heightIn") || "";
   const genderParam = params.get("gender") || "";
   const stateParam = params.get("state") || "";
+  const saltParam = params.get("salt") || "";
 
   const tier = getTierById(tierParam);
   const isFree = tier.id === "free";
+
+  // One salt per generated plan. Read from the URL when present (so the plan
+  // and grocery pages render the exact same generation); otherwise pick one
+  // and thread it through every link/redirect this page builds.
+  const [planSalt] = useState(() =>
+    saltParam ? parseInt(saltParam, 10) : Math.floor(Math.random() * 0x7fffffff)
+  );
 
   // Calculate TDEE/calorie target if body metrics are present
   const hasMetrics = weightParam && heightFtParam && genderParam;
@@ -424,6 +432,7 @@ function PlanContent() {
         if (stateParam) current.set("state", stateParam);
 
         if (saved.toString() !== current.toString()) {
+          saved.set("salt", String(planSalt));
           router.replace(`/plan?${saved.toString()}`);
         } else {
           setResolving(false);
@@ -452,6 +461,7 @@ function PlanContent() {
       if (heightInParam) p.set("heightIn", heightInParam);
       if (genderParam) p.set("gender", genderParam);
       if (stateParam) p.set("state", stateParam);
+      p.set("salt", String(planSalt));
       return p.toString();
     }
 
@@ -496,7 +506,7 @@ function PlanContent() {
         stateCode: stateParam,
         calorieTarget,
         weightLbs: weightParam ? parseFloat(weightParam) : undefined,
-        planSalt: Math.floor(Math.random() * 0x7fffffff),
+        planSalt,
       }),
     })
       .then((r) => r.json())
@@ -541,6 +551,7 @@ function PlanContent() {
     if (heightInParam) p.set("heightIn", heightInParam);
     if (genderParam) p.set("gender", genderParam);
     if (stateParam) p.set("state", stateParam);
+    p.set("salt", String(planSalt));
     return p;
   }
 

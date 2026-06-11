@@ -47,6 +47,10 @@ function GroceryContent() {
   const heightInParam = params.get("heightIn") || "";
   const genderParam = params.get("gender") || "";
   const stateParam = params.get("state") || "";
+  // Same salt the plan page used — guarantees this page regenerates the
+  // identical plan and cart, so the two totals always match.
+  const saltParam = params.get("salt") || "";
+  const planSalt = saltParam ? parseInt(saltParam, 10) : 0;
 
   const tier = getTierById(tierParam);
 
@@ -85,6 +89,8 @@ function GroceryContent() {
         totalDays: tier.days,
         stateCode: stateParam,
         calorieTarget,
+        weightLbs: weightParam ? parseFloat(weightParam) : undefined,
+        planSalt,
       }),
     })
       .then((r) => r.json())
@@ -163,6 +169,7 @@ function GroceryContent() {
     if (heightInParam) p.set("heightIn", heightInParam);
     if (genderParam) p.set("gender", genderParam);
     if (stateParam) p.set("state", stateParam);
+    if (saltParam) p.set("salt", saltParam);
     return p;
   }
 
