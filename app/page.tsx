@@ -6,15 +6,7 @@ import { usePostHog } from "posthog-js/react";
 import { planTiers } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
 import { US_STATES } from "@/app/data/stateMultipliers";
-
-const fitnessGoals = [
-  { value: "", label: "Select a goal..." },
-  { value: "muscle_gain", label: "Build Muscle" },
-  { value: "fat_loss", label: "Lose Fat" },
-  { value: "maintenance", label: "Maintain Weight" },
-  { value: "endurance", label: "Improve Endurance" },
-  { value: "general_health", label: "General Health" },
-];
+import { checkGoalRate, deriveGoal } from "@/app/lib/tdee";
 
 const dietaryOptions = [
   { value: "vegetarian", label: "Vegetarian" },
@@ -43,7 +35,8 @@ export default function Home() {
   const posthog = usePostHog();
   const [budget, setBudget] = useState("");
   const [numberOfPeople, setNumberOfPeople] = useState("1");
-  const [goal, setGoal] = useState("");
+  const [targetWeight, setTargetWeight] = useState("");
+  const [goalTimeframe, setGoalTimeframe] = useState("");
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
   const [age, setAge] = useState("");
   const [activityLevel, setActivityLevel] = useState("1.55");
@@ -86,18 +79,31 @@ export default function Home() {
           if (plan.height_in != null) p.set("heightIn", String(plan.height_in));
           if (plan.gender) p.set("gender", plan.gender);
           if (plan.state) p.set("state", plan.state);
+          if (plan.target_weight) p.set("targetWeight", String(plan.target_weight));
+          if (plan.goal_timeframe_weeks) p.set("goalTimeframe", String(plan.goal_timeframe_weeks));
           router.replace(`/plan?${p.toString()}`);
           return;
         }
         const used = statusData.used ?? false;
         setFreeTrialUsed(used);
-        if (used) setTier("starter");
+        if (used) setTier("monthly");
         setTrialCheckDone(true);
       })
       .catch(() => setTrialCheckDone(true));
   }, []);
 
   const selectedTier = planTiers.find((t) => t.id === tier) ?? planTiers[0];
+
+  // Goal is derived from the direction of the target: above current weight =
+  // muscle gain, below = fat loss, none/equal = maintenance.
+  const currentWeightNum = parseFloat(weight) || 0;
+  const targetWeightNum = parseFloat(targetWeight) || 0;
+  const timeframeNum = parseFloat(goalTimeframe) || 0;
+  const goal = deriveGoal(currentWeightNum || undefined, targetWeightNum || undefined);
+  const rateCheck =
+    currentWeightNum && targetWeightNum && timeframeNum > 0
+      ? checkGoalRate(currentWeightNum, targetWeightNum, timeframeNum)
+      : null;
 
   function buildParams() {
     const p = new URLSearchParams({
@@ -115,6 +121,8 @@ export default function Home() {
     if (heightIn) p.set("heightIn", heightIn);
     if (gender) p.set("gender", gender);
     if (state) p.set("state", state);
+    if (targetWeight) p.set("targetWeight", targetWeight);
+    if (goalTimeframe) p.set("goalTimeframe", goalTimeframe);
     return p;
   }
 
@@ -142,11 +150,13 @@ export default function Home() {
           heightIn: heightIn ? parseInt(heightIn) : null,
           gender: gender || null,
           state: state || null,
+          targetWeight: targetWeight ? parseFloat(targetWeight) : null,
+          goalTimeframe: goalTimeframe ? parseInt(goalTimeframe) : null,
         }),
       });
       if (!res.ok) {
         setFreeTrialUsed(true);
-        setTier("starter");
+        setTier("monthly");
         setLoading(false);
         return;
       }
@@ -173,6 +183,8 @@ export default function Home() {
           heightIn: heightIn || "",
           gender: gender || "",
           state: state || "",
+          targetWeight: targetWeight || "",
+          goalTimeframe: goalTimeframe || "",
           origin: window.location.origin,
         }),
       });
@@ -185,9 +197,6 @@ export default function Home() {
       setLoading(false);
     }
   }
-
-  const selectClass =
-    "w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer";
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -270,23 +279,77 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Fitness Goal */}
+            {/* Goal Target */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="goal" className="text-sm font-medium text-gray-300">
-                Fitness goal
+              <label className="text-sm font-medium text-gray-300">
+                Your goal
+                <span className="ml-2 text-xs text-gray-600 font-normal">
+                  uses your weight from body metrics below
+                </span>
               </label>
-              <select
-                id="goal"
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
-                className={selectClass}
-              >
-                {fitnessGoals.map((opt) => (
-                  <option key={opt.value} value={opt.value} className="bg-gray-900">
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-3">
+                <div className="flex flex-col gap-1 flex-1">
+                  <label htmlFor="targetWeight" className="text-xs text-gray-500">
+                    Target weight
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="targetWeight"
+                      type="number"
+                      min={80}
+                      max={400}
+                      step={1}
+                      value={targetWeight}
+                      onChange={(e) => setTargetWeight(e.target.value)}
+                      placeholder="150"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                    />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">lbs</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1 flex-1">
+                  <label htmlFor="goalTimeframe" className="text-xs text-gray-500">
+                    Timeframe
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="goalTimeframe"
+                      type="number"
+                      min={1}
+                      max={104}
+                      step={1}
+                      value={goalTimeframe}
+                      onChange={(e) => setGoalTimeframe(e.target.value)}
+                      placeholder="12"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-14 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                    />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">weeks</span>
+                  </div>
+                </div>
+              </div>
+              {rateCheck && rateCheck.direction !== "maintain" && (
+                rateCheck.safe ? (
+                  <p className="text-xs text-gray-500">
+                    {rateCheck.direction === "loss" ? "Losing" : "Gaining"}{" "}
+                    {Math.abs(targetWeightNum - currentWeightNum).toFixed(0)} lbs over {timeframeNum} weeks
+                    (~{rateCheck.ratePerWeek.toFixed(1)} lb/week) — a healthy, sustainable pace.
+                  </p>
+                ) : (
+                  <div className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                    <p>
+                      {rateCheck.direction === "loss" ? "Losing" : "Gaining"}{" "}
+                      {Math.abs(targetWeightNum - currentWeightNum).toFixed(0)} lbs in {timeframeNum} week
+                      {timeframeNum === 1 ? "" : "s"} means ~{rateCheck.ratePerWeek.toFixed(1)} lb/week —
+                      above the safe rate of {rateCheck.maxSafeRate} lb/week for{" "}
+                      {rateCheck.direction === "loss" ? "fat loss" : "muscle gain"}.
+                    </p>
+                    <p className="mt-1">
+                      We suggest at least <strong>{rateCheck.suggestedWeeks} weeks</strong> for this goal.
+                      You can still proceed with your chosen timeframe.
+                    </p>
+                  </div>
+                )
+              )}
             </div>
 
             {/* Dietary Restrictions */}

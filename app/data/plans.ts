@@ -18,41 +18,35 @@ export const planTiers: PlanTier[] = [
     description: "1 week — no payment required",
   },
   {
-    id: "starter",
-    label: "Starter",
+    id: "monthly",
+    label: "Monthly",
     days: 30,
-    price: 10,
-    priceInCents: 1000,
-    description: "1 month plan",
-  },
-  {
-    id: "committed",
-    label: "Committed",
-    days: 90,
-    price: 20,
-    priceInCents: 2000,
-    description: "3 month plan",
+    price: 8,
+    priceInCents: 800,
+    description: "$8/month — 30-day plan",
     badge: "Popular",
   },
   {
-    id: "serious",
-    label: "Serious",
-    days: 180,
-    price: 30,
-    priceInCents: 3000,
-    description: "6 month plan",
-  },
-  {
-    id: "full_year",
-    label: "Full Year",
+    id: "annual",
+    label: "Annual",
     days: 365,
-    price: 40,
-    priceInCents: 4000,
-    description: "12 month plan",
+    price: 60,
+    priceInCents: 6000,
+    description: "$60/year — 37% cheaper than monthly",
     badge: "Best Value",
   },
 ];
 
+// Tier IDs from the retired pricing structure map onto the closest new tier so
+// previously saved plans keep working.
+const LEGACY_TIER_MAP: Record<string, string> = {
+  starter: "monthly",
+  committed: "monthly",
+  serious: "annual",
+  full_year: "annual",
+};
+
 export function getTierById(id: string): PlanTier {
-  return planTiers.find((t) => t.id === id) ?? planTiers[0];
+  const mapped = LEGACY_TIER_MAP[id] ?? id;
+  return planTiers.find((t) => t.id === mapped) ?? planTiers[0];
 }

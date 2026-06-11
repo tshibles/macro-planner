@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     people = "1",
     age = "", activityLevel = "", allergies = "",
     weight = "", heightFt = "", heightIn = "", gender = "", state = "",
+    targetWeight = "", goalTimeframe = "",
     origin,
   } = await req.json();
 
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
   if (heightIn) baseParams.set("heightIn", heightIn);
   if (gender) baseParams.set("gender", gender);
   if (state) baseParams.set("state", state);
+  if (targetWeight) baseParams.set("targetWeight", targetWeight);
+  if (goalTimeframe) baseParams.set("goalTimeframe", goalTimeframe);
 
   const successUrl = `${origin}/plan?${baseParams.toString()}&paid=true`;
   const cancelUrl = `${origin}/plan?${baseParams.toString()}`;

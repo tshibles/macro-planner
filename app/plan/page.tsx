@@ -4,8 +4,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePostHog } from "posthog-js/react";
 import type { DayMeals, MealPlan } from "@/app/lib/generatePlan";
-import { Meal } from "@/app/data/meals";
-import { getTierById } from "@/app/data/plans";
+import { findSwapAlternatives } from "@/app/lib/generatePlan";
+import { Meal, MealType } from "@/app/data/meals";
+import { getTierById, planTiers } from "@/app/data/plans";
 import { UserButton } from "@/app/components/UserButton";
 import { calculateTDEE, getCalorieTarget } from "@/app/lib/tdee";
 import { STATE_NAMES } from "@/app/data/stateMultipliers";
@@ -230,11 +231,30 @@ function RecipeModal({ meal, onClose }: { meal: Meal; onClose: () => void }) {
 
 // ─── Meal Card ───────────────────────────────────────────────────────────────
 
-function MealCard({ meal, onClick }: { meal: Meal; onClick: () => void }) {
+type Rating = "like" | "dislike";
+
+function MealCard({
+  meal,
+  onClick,
+  onSwap,
+  rating,
+  onRate,
+  showRatings,
+}: {
+  meal: Meal;
+  onClick: () => void;
+  onSwap?: () => void;
+  rating?: Rating;
+  onRate?: (kind: Rating) => void;
+  showRatings?: boolean;
+}) {
   return (
-    <button
+    <div
       onClick={onClick}
-      className="w-full text-left flex items-center gap-3 py-3 px-0 border-b border-white/5 last:border-0 hover:bg-white/[0.02] -mx-1 px-1 rounded-lg transition-colors group"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter") onClick(); }}
+      className="w-full text-left flex items-center gap-3 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.02] -mx-1 px-1 rounded-lg transition-colors group cursor-pointer"
     >
       <span className="text-base w-6 flex-shrink-0 text-center">{MEAL_ICONS[meal.type]}</span>
       <div className="min-w-0 flex-1">
@@ -251,20 +271,78 @@ function MealCard({ meal, onClick }: { meal: Meal; onClick: () => void }) {
           <MacroBadge label="F" value={`${meal.fat}g`} color="bg-purple-500/10 text-purple-400" />
         </div>
       </div>
-      <div className="flex-shrink-0 flex flex-col items-end gap-1">
+      <div className="flex-shrink-0 flex flex-col items-end gap-1.5">
         <span className="text-xs text-gray-600">${meal.cost.toFixed(2)}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-gray-600 group-hover:text-brand-500 transition-colors">
-          <path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l4.25-4.25a.75.75 0 0 0 0-1.06L7.28 0.22a.75.75 0 0 0-1.06 1.06L9.94 5l-3.72 3.72Z" />
-          <path d="M9.94 11l-3.72 3.72a.75.75 0 0 1-1.06-1.06l4.25-4.25h-8a.75.75 0 0 1 0-1.5h8L5.16 4.16a.75.75 0 1 1 1.06-1.06l4.25 4.25c.293.293.44.677.44 1.06L10.91 9.5l-.97.97Z" />
-        </svg>
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {showRatings && onRate && (
+            <>
+              <button
+                onClick={() => onRate("like")}
+                aria-label="Like this meal"
+                title="Like — we'll save it as a favorite"
+                className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+                  rating === "like"
+                    ? "bg-emerald-500/25 text-emerald-300"
+                    : "bg-white/5 text-gray-600 hover:text-emerald-400 hover:bg-white/10"
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M8.834.066c.763.087 1.5.295 2.01.884.505.581.656 1.378.656 2.3 0 .467-.087 1.119-.157 1.637L11.328 5h1.422c.603 0 1.174.085 1.668.333.508.254.911.679 1.137 1.2.453.998.438 2.447.188 4.316l-.04.306c-.105.79-.195 1.473-.313 2.033-.131.63-.315 1.209-.668 1.672C13.97 15.847 12.706 16 11 16c-1.848 0-3.234-.333-4.388-.653-.165-.045-.323-.09-.475-.133-.658-.186-1.2-.34-1.725-.415A1.75 1.75 0 0 1 2.75 16h-1A1.75 1.75 0 0 1 0 14.25v-7.5C0 5.784.784 5 1.75 5h1a1.75 1.75 0 0 1 1.514.872c.258-.105.59-.268.918-.508C5.853 4.874 6.5 4.079 6.5 2.75v-.5c0-1.202.994-2.337 2.334-2.184Z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => onRate("dislike")}
+                aria-label="Dislike this meal"
+                title="Dislike — we won't show it again"
+                className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+                  rating === "dislike"
+                    ? "bg-red-500/25 text-red-300"
+                    : "bg-white/5 text-gray-600 hover:text-red-400 hover:bg-white/10"
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 rotate-180">
+                  <path d="M8.834.066c.763.087 1.5.295 2.01.884.505.581.656 1.378.656 2.3 0 .467-.087 1.119-.157 1.637L11.328 5h1.422c.603 0 1.174.085 1.668.333.508.254.911.679 1.137 1.2.453.998.438 2.447.188 4.316l-.04.306c-.105.79-.195 1.473-.313 2.033-.131.63-.315 1.209-.668 1.672C13.97 15.847 12.706 16 11 16c-1.848 0-3.234-.333-4.388-.653-.165-.045-.323-.09-.475-.133-.658-.186-1.2-.34-1.725-.415A1.75 1.75 0 0 1 2.75 16h-1A1.75 1.75 0 0 1 0 14.25v-7.5C0 5.784.784 5 1.75 5h1a1.75 1.75 0 0 1 1.514.872c.258-.105.59-.268.918-.508C5.853 4.874 6.5 4.079 6.5 2.75v-.5c0-1.202.994-2.337 2.334-2.184Z" />
+                </svg>
+              </button>
+            </>
+          )}
+          {onSwap && (
+            <button
+              onClick={onSwap}
+              aria-label="Swap this meal"
+              title="Swap for a different meal"
+              className="w-6 h-6 rounded-md bg-white/5 text-gray-600 hover:text-brand-400 hover:bg-white/10 flex items-center justify-center transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                <path fillRule="evenodd" d="M13.78 10.47a.75.75 0 0 1 0 1.06l-2.25 2.25a.75.75 0 1 1-1.06-1.06l.97-.97H5.75a.75.75 0 0 1 0-1.5h5.69l-.97-.97a.75.75 0 1 1 1.06-1.06l2.25 2.25ZM2.22 5.53a.75.75 0 0 1 0-1.06l2.25-2.25a.75.75 0 0 1 1.06 1.06l-.97.97h5.69a.75.75 0 0 1 0 1.5H4.56l.97.97a.75.75 0 1 1-1.06 1.06L2.22 5.53Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 
 // ─── Day Card ────────────────────────────────────────────────────────────────
 
-function DayCard({ dayPlan, onMealClick }: { dayPlan: DayMeals; onMealClick: (m: Meal) => void }) {
+const DAY_SLOTS: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
+
+function DayCard({
+  dayPlan,
+  onMealClick,
+  onSwap,
+  ratings,
+  onRate,
+  showRatings,
+}: {
+  dayPlan: DayMeals;
+  onMealClick: (m: Meal) => void;
+  onSwap?: (dayIndex: number, slot: MealType, current: Meal) => void;
+  ratings?: Record<string, Rating>;
+  onRate?: (mealId: string, kind: Rating) => void;
+  showRatings?: boolean;
+}) {
   return (
     <div className="bg-white/[0.04] border border-white/8 rounded-2xl overflow-hidden">
       <div className="px-5 py-3 bg-white/[0.03] border-b border-white/8 flex items-center justify-between">
@@ -275,10 +353,20 @@ function DayCard({ dayPlan, onMealClick }: { dayPlan: DayMeals; onMealClick: (m:
         <span className="text-xs text-gray-500">${dayPlan.dailyCost.toFixed(2)}</span>
       </div>
       <div className="px-4">
-        <MealCard meal={dayPlan.breakfast} onClick={() => onMealClick(dayPlan.breakfast)} />
-        <MealCard meal={dayPlan.lunch} onClick={() => onMealClick(dayPlan.lunch)} />
-        <MealCard meal={dayPlan.dinner} onClick={() => onMealClick(dayPlan.dinner)} />
-        <MealCard meal={dayPlan.snack} onClick={() => onMealClick(dayPlan.snack)} />
+        {DAY_SLOTS.map((slot) => {
+          const meal = dayPlan[slot];
+          return (
+            <MealCard
+              key={slot}
+              meal={meal}
+              onClick={() => onMealClick(meal)}
+              onSwap={onSwap ? () => onSwap(dayPlan.dayIndex, slot, meal) : undefined}
+              rating={ratings?.[meal.id]}
+              onRate={onRate ? (kind) => onRate(meal.id, kind) : undefined}
+              showRatings={showRatings}
+            />
+          );
+        })}
       </div>
       <div className="px-5 py-2.5 bg-white/[0.02] border-t border-white/8 flex flex-wrap gap-1.5 items-center">
         <span className="text-xs text-gray-600 mr-0.5 font-medium">Daily:</span>
@@ -291,9 +379,121 @@ function DayCard({ dayPlan, onMealClick }: { dayPlan: DayMeals; onMealClick: (m:
   );
 }
 
+// ─── Swap Modal ──────────────────────────────────────────────────────────────
+
+function SwapModal({
+  current,
+  alternatives,
+  loading,
+  onSelect,
+  onClose,
+}: {
+  current: Meal;
+  alternatives: Meal[];
+  loading: boolean;
+  onSelect: (mealId: string) => void;
+  onClose: () => void;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
+    >
+      <div className="w-full sm:max-w-xl max-h-[92dvh] sm:max-h-[80vh] bg-gray-900 border border-white/10 rounded-t-3xl sm:rounded-2xl overflow-y-auto shadow-2xl flex flex-col">
+        <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-white/8 px-6 py-4 flex items-start justify-between gap-4 z-10">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">{MEAL_ICONS[current.type]}</span>
+              <span className="text-xs uppercase tracking-widest text-gray-500 font-medium">
+                Swap {MEAL_LABELS[current.type]}
+              </span>
+            </div>
+            <h2 className="text-lg font-bold text-white leading-tight">
+              Replace &ldquo;{current.name}&rdquo;
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Alternatives below use only ingredients already on your grocery list.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 w-8 h-8 rounded-full bg-white/8 hover:bg-white/15 flex items-center justify-center transition-colors mt-1"
+            aria-label="Close"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-gray-400">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 px-4 py-3">
+          {alternatives.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-10 px-6">
+              No other {MEAL_LABELS[current.type].toLowerCase()} recipes can be cooked from your
+              current grocery list. Try a higher budget for more variety.
+            </p>
+          ) : (
+            <ul className="divide-y divide-white/5">
+              {alternatives.map((m) => (
+                <li key={m.id}>
+                  <button
+                    onClick={() => onSelect(m.id)}
+                    disabled={loading}
+                    className="w-full text-left flex items-center gap-3 py-3 px-2 hover:bg-white/[0.04] rounded-lg transition-colors disabled:opacity-50 group"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-white font-medium leading-snug group-hover:text-brand-400 transition-colors">
+                        {m.name}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        <MacroBadge label="kcal" value={m.calories} color="bg-white/6 text-gray-400" />
+                        <MacroBadge label="P" value={`${m.protein}g`} color="bg-blue-500/10 text-blue-400" />
+                        <MacroBadge label="C" value={`${m.carbs}g`} color="bg-amber-500/10 text-amber-400" />
+                        <MacroBadge label="F" value={`${m.fat}g`} color="bg-purple-500/10 text-purple-400" />
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-600 flex-shrink-0">${m.cost.toFixed(2)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {loading && (
+          <div className="sticky bottom-0 bg-gray-900/95 border-t border-white/8 px-6 py-3 flex items-center gap-2 text-sm text-gray-400">
+            <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            Swapping meal and updating your grocery list…
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Upgrade Overlay ─────────────────────────────────────────────────────────
 
-function UpgradeOverlay({ onUpgrade, loading }: { onUpgrade: () => void; loading: boolean }) {
+function UpgradeOverlay({ onUpgrade, loading }: { onUpgrade: (tierId: string) => void; loading: boolean }) {
+  const paidTiers = planTiers.filter((t) => t.priceInCents > 0);
   return (
     <div
       className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl"
@@ -308,24 +508,52 @@ function UpgradeOverlay({ onUpgrade, loading }: { onUpgrade: () => void; loading
         <div>
           <p className="text-white font-bold text-lg">Unlock your full plan</p>
           <p className="text-gray-400 text-sm mt-1 max-w-xs">
-            Upgrade to access your complete multi-week plan with all recipes.
+            Get your complete multi-week plan, all recipes, meal swaps, and ratings.
           </p>
         </div>
-        <button
-          onClick={onUpgrade}
-          disabled={loading}
-          className="mt-1 bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold px-7 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/30 flex items-center gap-2 text-sm"
-        >
-          {loading ? (
-            <>
-              <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Redirecting…
-            </>
-          ) : "View Upgrade Options"}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+          {paidTiers.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onUpgrade(t.id)}
+              disabled={loading}
+              className={`flex-1 rounded-xl px-5 py-4 border text-left transition-all disabled:opacity-60 ${
+                t.badge === "Best Value"
+                  ? "bg-brand-500/15 border-brand-500/50 hover:border-brand-400"
+                  : "bg-white/5 border-white/15 hover:border-white/30"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-white">{t.label}</span>
+                {t.badge && (
+                  <span className="text-[10px] bg-brand-500/20 text-brand-400 border border-brand-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                    {t.badge}
+                  </span>
+                )}
+              </div>
+              <p className="text-2xl font-extrabold text-white mt-1">
+                ${t.price}
+                <span className="text-xs font-medium text-gray-500">
+                  /{t.id === "annual" ? "year" : "month"}
+                </span>
+              </p>
+              {t.id === "annual" && (
+                <p className="text-[11px] text-brand-400 mt-0.5">
+                  ${(t.price / 12).toFixed(2)}/mo equivalent
+                </p>
+              )}
+            </button>
+          ))}
+        </div>
+        {loading && (
+          <p className="text-xs text-gray-500 flex items-center gap-1.5">
+            <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            Redirecting to checkout…
+          </p>
+        )}
         <p className="text-xs text-gray-600 flex items-center gap-1.5">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
             <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
@@ -359,19 +587,28 @@ function PlanContent() {
   const heightInParam = params.get("heightIn") || "";
   const genderParam = params.get("gender") || "";
   const stateParam = params.get("state") || "";
+  const targetWeightParam = params.get("targetWeight") || "";
+  const goalTimeframeParam = params.get("goalTimeframe") || "";
   const saltParam = params.get("salt") || "";
 
   const tier = getTierById(tierParam);
   const isFree = tier.id === "free";
 
+  const allergiesList = allergiesParam
+    ? allergiesParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
   // One salt per generated plan. Read from the URL when present (so the plan
   // and grocery pages render the exact same generation); otherwise pick one
-  // and thread it through every link/redirect this page builds.
-  const [planSalt] = useState(() =>
+  // and thread it through every link/redirect this page builds. For paid
+  // users a saved salt from meal_plans overrides this so they get the exact
+  // same plan back on every visit.
+  const [planSalt, setPlanSalt] = useState(() =>
     saltParam ? parseInt(saltParam, 10) : Math.floor(Math.random() * 0x7fffffff)
   );
 
-  // Calculate TDEE/calorie target if body metrics are present
+  // Calculate TDEE/calorie target if body metrics are present. The surplus or
+  // deficit comes from the target weight + timeframe when given.
   const hasMetrics = weightParam && heightFtParam && genderParam;
   const tdee = hasMetrics
     ? calculateTDEE(
@@ -383,20 +620,63 @@ function PlanContent() {
         activityLevelParam ? parseFloat(activityLevelParam) : 1.55
       )
     : null;
-  const calorieTarget = tdee ? getCalorieTarget(tdee, goal) : undefined;
+  const goalTarget =
+    weightParam && targetWeightParam && goalTimeframeParam
+      ? {
+          weightLbs: parseFloat(weightParam),
+          targetWeightLbs: parseFloat(targetWeightParam),
+          timeframeWeeks: parseFloat(goalTimeframeParam),
+        }
+      : undefined;
+  const calorieTarget = tdee ? getCalorieTarget(tdee, goal, goalTarget) : undefined;
 
-  const [resolving, setResolving] = useState(isFree);
+  const [resolving, setResolving] = useState(true);
   const [unlocked, setUnlocked] = useState(isFree);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState(0);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
   const [plan, setPlan] = useState<MealPlan | null>(null);
+  const [ratings, setRatings] = useState<Record<string, Rating>>({});
+  const [swapTarget, setSwapTarget] = useState<{ dayIndex: number; slot: MealType; current: Meal } | null>(null);
+  const [swapLoading, setSwapLoading] = useState(false);
 
+  // Resolve the saved meal_plans row: free users get redirected to their saved
+  // params if the URL doesn't match; paid users reuse their saved plan salt
+  // (or persist the fresh one). Ratings initialize from the saved row.
   useEffect(() => {
-    if (!isFree) return;
     fetch("/api/meal-plans/saved")
       .then((r) => r.json())
       .then(({ plan }) => {
+        if (plan) {
+          const initial: Record<string, Rating> = {};
+          for (const id of plan.liked_meal_ids ?? []) initial[id] = "like";
+          for (const id of plan.disliked_meal_ids ?? []) initial[id] = "dislike";
+          setRatings(initial);
+        }
+
+        if (!isFree) {
+          if (plan && plan.plan_salt != null) {
+            setPlanSalt(plan.plan_salt);
+          } else {
+            // First generation for this paid plan — persist the salt.
+            fetch("/api/meal-plans/salt", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                salt: planSalt,
+                budget: String(budget),
+                goal,
+                diets: selectedDiets,
+                tier: tierParam,
+                targetWeight: targetWeightParam || null,
+                goalTimeframe: goalTimeframeParam || null,
+              }),
+            }).catch(() => {});
+          }
+          setResolving(false);
+          return;
+        }
+
         if (!plan) {
           setResolving(false);
           return;
@@ -416,6 +696,8 @@ function PlanContent() {
         if (plan.height_in != null) saved.set("heightIn", String(plan.height_in));
         if (plan.gender) saved.set("gender", plan.gender);
         if (plan.state) saved.set("state", plan.state);
+        if (plan.target_weight) saved.set("targetWeight", String(plan.target_weight));
+        if (plan.goal_timeframe_weeks) saved.set("goalTimeframe", String(plan.goal_timeframe_weeks));
 
         const current = new URLSearchParams({
           budget: String(budget),
@@ -430,6 +712,8 @@ function PlanContent() {
         if (heightInParam) current.set("heightIn", heightInParam);
         if (genderParam) current.set("gender", genderParam);
         if (stateParam) current.set("state", stateParam);
+        if (targetWeightParam) current.set("targetWeight", targetWeightParam);
+        if (goalTimeframeParam) current.set("goalTimeframe", goalTimeframeParam);
 
         if (saved.toString() !== current.toString()) {
           saved.set("salt", String(planSalt));
@@ -461,6 +745,8 @@ function PlanContent() {
       if (heightInParam) p.set("heightIn", heightInParam);
       if (genderParam) p.set("gender", genderParam);
       if (stateParam) p.set("state", stateParam);
+      if (targetWeightParam) p.set("targetWeight", targetWeightParam);
+      if (goalTimeframeParam) p.set("goalTimeframe", goalTimeframeParam);
       p.set("salt", String(planSalt));
       return p.toString();
     }
@@ -501,7 +787,7 @@ function PlanContent() {
         numberOfPeople,
         goal,
         diets: selectedDiets,
-        allergies: allergiesParam ? allergiesParam.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        allergies: allergiesList,
         totalDays: tier.days,
         stateCode: stateParam,
         calorieTarget,
@@ -513,7 +799,7 @@ function PlanContent() {
       .then((data) => { if (!cancelled) setPlan(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [resolving]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resolving, planSalt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isWeekLocked = !unlocked && currentWeek > 0;
 
@@ -551,19 +837,122 @@ function PlanContent() {
     if (heightInParam) p.set("heightIn", heightInParam);
     if (genderParam) p.set("gender", genderParam);
     if (stateParam) p.set("state", stateParam);
+    if (targetWeightParam) p.set("targetWeight", targetWeightParam);
+    if (goalTimeframeParam) p.set("goalTimeframe", goalTimeframeParam);
     p.set("salt", String(planSalt));
     return p;
   }
 
-  async function handleUpgrade() {
+  async function handleUpgrade(tierId: string) {
     setCheckoutLoading(true);
-    router.push("/");
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          budget: String(budget),
+          people: String(numberOfPeople),
+          goal,
+          diets: selectedDiets,
+          tier: tierId,
+          age: ageParam,
+          activityLevel: activityLevelParam,
+          allergies: allergiesParam,
+          weight: weightParam,
+          heightFt: heightFtParam,
+          heightIn: heightInParam,
+          gender: genderParam,
+          state: stateParam,
+          targetWeight: targetWeightParam,
+          goalTimeframe: goalTimeframeParam,
+          origin: window.location.origin,
+        }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+    } catch {}
+    setCheckoutLoading(false);
   }
+
+  function handleRate(mealId: string, kind: Rating) {
+    // Optimistic toggle; both endpoints toggle server-side and keep
+    // liked/disliked mutually exclusive.
+    setRatings((prev) => {
+      const next = { ...prev };
+      if (prev[mealId] === kind) delete next[mealId];
+      else next[mealId] = kind;
+      return next;
+    });
+    fetch(kind === "like" ? "/api/meals/like" : "/api/meals/dislike", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mealId }),
+    }).catch(() => {});
+  }
+
+  function handleSwapSelect(newMealId: string) {
+    if (!swapTarget) return;
+    setSwapLoading(true);
+    fetch("/api/meals/swap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dayIndex: swapTarget.dayIndex,
+        slot: swapTarget.slot,
+        newMealId,
+        planSalt,
+        budget,
+        numberOfPeople,
+        goal,
+        diets: selectedDiets,
+        allergies: allergiesList,
+        totalDays: tier.days,
+        stateCode: stateParam,
+        calorieTarget,
+        weightLbs: weightParam ? parseFloat(weightParam) : undefined,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        // The route returns the swapped day plus the full regenerated plan
+        // (the swap repeats on the matching weekday of every week, and the
+        // grocery cart may have changed) — replace the whole plan state.
+        if (data.plan) setPlan(data.plan);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setSwapLoading(false);
+        setSwapTarget(null);
+      });
+  }
+
+  const swapAlternatives = swapTarget && plan
+    ? findSwapAlternatives(
+        plan.weeklyCart.items.map((i) => i.key),
+        swapTarget.slot,
+        (plan.weeks[currentWeek] ?? []).flatMap((d) => [d.breakfast.id, d.lunch.id, d.dinner.id, d.snack.id]),
+        selectedDiets,
+        allergiesList,
+        Object.entries(ratings).filter(([, v]) => v === "dislike").map(([id]) => id)
+      )
+    : [];
 
   return (
     <>
       {selectedMeal && (
         <RecipeModal meal={selectedMeal} onClose={() => setSelectedMeal(null)} />
+      )}
+      {swapTarget && (
+        <SwapModal
+          current={swapTarget.current}
+          alternatives={swapAlternatives}
+          loading={swapLoading}
+          onSelect={handleSwapSelect}
+          onClose={() => { if (!swapLoading) setSwapTarget(null); }}
+        />
       )}
 
       <main className="min-h-screen flex flex-col">
@@ -613,11 +1002,15 @@ function PlanContent() {
               <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
                 {tier.label} Plan
               </span>
-              {goal && (
+              {targetWeightParam && goalTimeframeParam ? (
+                <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+                  Target: {targetWeightParam} lbs in {goalTimeframeParam} wks
+                </span>
+              ) : goal ? (
                 <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
                   {GOAL_LABELS[goal]}
                 </span>
-              )}
+              ) : null}
               {selectedDiets.length > 0 ? (
                 selectedDiets.map((d) => (
                   <span key={d} className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
@@ -750,7 +1143,15 @@ function PlanContent() {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {weekDays.map((dayPlan) => (
-                <DayCard key={dayPlan.dayIndex} dayPlan={dayPlan} onMealClick={handleMealClick} />
+                <DayCard
+                  key={dayPlan.dayIndex}
+                  dayPlan={dayPlan}
+                  onMealClick={handleMealClick}
+                  onSwap={(dayIndex, slot, current) => setSwapTarget({ dayIndex, slot, current })}
+                  ratings={ratings}
+                  onRate={!isFree && unlocked ? handleRate : undefined}
+                  showRatings={!isFree && unlocked}
+                />
               ))}
             </div>
           )}

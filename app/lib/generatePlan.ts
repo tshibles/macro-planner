@@ -34,6 +34,14 @@ export interface WeeklyCartSummary {
   totalCost: number;
 }
 
+// A user-initiated meal replacement, applied on top of the deterministic
+// selection. Only valid for the plan salt it was created against.
+export interface MealSwap {
+  dayIndex: number;
+  slot: "breakfast" | "lunch" | "dinner" | "snack";
+  mealId: string;
+}
+
 export interface MealPlan {
   days: DayMeals[];
   weeks: DayMeals[][];
@@ -543,6 +551,42 @@ function mealEligibleFromCart(meal: Meal, cartEntries: CartEntry[]): boolean {
   return true;
 }
 
+// ── Swap Alternatives ─────────────────────────────────────────────────────────
+// Meals that can replace the one in a given slot: cookable from the current
+// cart, same slot, not already used in the week, and within diet/allergy rules.
+// `cartItemKeys` are the `key` fields of the displayed weekly cart.
+
+export function findSwapAlternatives(
+  cartItemKeys: string[],
+  slot: Meal["type"],
+  usedMealIds: string[],
+  diets: string[],
+  allergies: string[],
+  excludedIds: string[] = []
+): Meal[] {
+  const cartProducts = new Set<string>();
+  for (const key of cartItemKeys) {
+    const def = lookupPurchasable(key);
+    if (def) cartProducts.add(productId(def.price, def.unit));
+  }
+  const used = new Set(usedMealIds);
+  const excluded = new Set(excludedIds);
+  return meals.filter(
+    (m) =>
+      m.type === slot &&
+      !used.has(m.id) &&
+      !excluded.has(m.id) &&
+      isAllowed(m, diets) &&
+      !hasAllergen(m, allergies) &&
+      m.ingredients.every((ing) => {
+        const key = normalizeKey(ing.item);
+        if (isPantryStaple(key)) return true;
+        const def = lookupPurchasable(key);
+        return !def || cartProducts.has(productId(def.price, def.unit));
+      })
+  );
+}
+
 // ── Pool Builder ──────────────────────────────────────────────────────────────
 // The cart is the budget controller — no budget-tier or cal/$ filtering.
 // A meal is eligible only if ALL its non-pantry ingredients are in the cart.
@@ -634,6 +678,14 @@ function freshUsedTracker(): UsedTracker { return { breakfast: 0, lunch: 0, dinn
 
 // ── Calorie Balancer ──────────────────────────────────────────────────────────
 
+function recomputeDayTotals(day: DayMeals): void {
+  day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
+  day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
+  day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
+  day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
+  day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
+}
+
 function balanceDailyCalories(week: DayMeals[]): void {
   for (let iter = 0; iter < 20; iter++) {
     let maxIdx = 0, minIdx = 0;
@@ -651,13 +703,8 @@ function balanceDailyCalories(week: DayMeals[]): void {
     const temp = week[maxIdx][bestKey];
     week[maxIdx][bestKey] = week[minIdx][bestKey];
     week[minIdx][bestKey] = temp;
-    for (const day of [week[maxIdx], week[minIdx]]) {
-      day.dailyCalories = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
-      day.dailyProtein  = day.breakfast.protein  + day.lunch.protein  + day.dinner.protein  + day.snack.protein;
-      day.dailyCarbs    = day.breakfast.carbs    + day.lunch.carbs    + day.dinner.carbs    + day.snack.carbs;
-      day.dailyFat      = day.breakfast.fat      + day.lunch.fat      + day.dinner.fat      + day.snack.fat;
-      day.dailyCost     = +(day.breakfast.cost + day.lunch.cost + day.dinner.cost + day.snack.cost).toFixed(2);
-    }
+    recomputeDayTotals(week[maxIdx]);
+    recomputeDayTotals(week[minIdx]);
   }
 }
 
@@ -691,7 +738,8 @@ export function generatePlan(
   dislikedIds: string[] = [],
   planSalt: number = 0,
   allergies: string[] = [],
-  weightLbs?: number
+  weightLbs?: number,
+  swaps: MealSwap[] = []
 ): MealPlan {
   const stateMultiplier = STATE_MULTIPLIERS[stateCode] ?? 1.0;
   const numWeeks = Math.ceil(totalDays / 7);
@@ -827,6 +875,23 @@ export function generatePlan(
   // ── Step 7: Balance calorie distribution across days ─────────────────────────
   balanceDailyCalories(week1Days);
 
+  // ── Step 7.5: Apply user meal swaps ──────────────────────────────────────────
+  // Swaps replace the deterministic pick for a (day, slot). They run after
+  // balancing (so day indices are final) and before portion scaling. The cart
+  // pruning in Step 9 then drops ingredients only the swapped-out meal used;
+  // Step 9.5 buys anything the swapped-in meal still needs, budget permitting.
+  const swappedInMeals: Meal[] = [];
+  for (const sw of swaps) {
+    const idx = sw.dayIndex % 7;
+    if (idx >= week1Days.length) continue;
+    const replacement = meals.find((m) => m.id === sw.mealId);
+    if (!replacement || replacement.type !== sw.slot) continue;
+    week1Days[idx][sw.slot] = replacement;
+    swappedInMeals.push(replacement);
+    recomputeDayTotals(week1Days[idx]);
+    console.log(`[generatePlan] swap applied — day ${idx} ${sw.slot} → "${replacement.name}" (id=${replacement.id})`);
+  }
+
   // ── Step 8: Scale portions to hit the daily calorie target ────────────────────
   let portionCapped = false;
   if (calorieTarget) {
@@ -878,6 +943,26 @@ export function generatePlan(
   const pruned = cartEntries.filter((e) => !usedProducts.has(productId(e.defPrice, e.defUnit)));
   if (pruned.length > 0) {
     console.log(`[generatePlan] pruned ${pruned.length} unused cart items: ${pruned.map((e) => e.key).join(", ")}`);
+  }
+
+  // ── Step 9.5: Buy ingredients swapped-in meals still need ───────────────────
+  // The swap UI only offers cart-eligible meals, so this is normally a no-op,
+  // but if a swapped meal needs something the prune just freed budget for,
+  // buy it as long as the cart stays within budget.
+  if (swappedInMeals.length > 0) {
+    let cartCost = +finalEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2);
+    for (const meal of swappedInMeals) {
+      for (const { key, def } of collectMissingProducts(meal, finalEntries)) {
+        const entry = makeCartEntry(key, def, 1, stateMultiplier);
+        if (cartCost + entry.totalCost > perPersonBudget) {
+          console.warn(`[generatePlan] swap: skipping "${key}" — would exceed budget`);
+          continue;
+        }
+        finalEntries.push(entry);
+        cartCost = +(cartCost + entry.totalCost).toFixed(2);
+        console.log(`[generatePlan] swap: bought missing ingredient "${key}" ($${entry.totalCost})`);
+      }
+    }
   }
 
   // ── Step 10: Expand to full plan length ──────────────────────────────────────

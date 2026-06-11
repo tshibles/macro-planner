@@ -37,6 +37,8 @@ export async function POST(req: Request) {
     heightIn = null,
     gender = null,
     state = null,
+    targetWeight = null,
+    goalTimeframe = null,
   } = body;
 
   const { error } = await supabase
@@ -68,6 +70,8 @@ export async function POST(req: Request) {
       height_in: heightIn != null ? parseInt(String(heightIn)) : null,
       gender: gender || null,
       state: state || null,
+      target_weight: targetWeight != null ? parseFloat(String(targetWeight)) : null,
+      goal_timeframe_weeks: goalTimeframe != null ? parseInt(String(goalTimeframe)) : null,
     },
     { onConflict: "user_id" }
   );
