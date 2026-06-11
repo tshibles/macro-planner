@@ -165,6 +165,11 @@ function hasAllergen(meal: Meal, allergies: string[]): boolean {
   return meal.ingredients.some((ing) => roots.some((r) => ing.item.toLowerCase().includes(r)));
 }
 
+// Fraction of a meal's calories that come from protein (scale-invariant).
+function proteinCalRatio(meal: Meal): number {
+  return (meal.protein * 4) / (meal.calories || 1);
+}
+
 function scoreMeal(meal: Meal, goal: string): number {
   const pd = meal.protein / (meal.calories || 1);
   switch (goal) {
@@ -299,16 +304,17 @@ function buildTargetedCart(
   weeklyBudget: number,
   weeklyCalTarget: number,
   weeklyProteinTarget: number | null,
-  stateMultiplier: number
+  stateMultiplier: number,
+  existing: CartEntry[] = [] // pre-purchased entries (meal-aware variety pass) to top up around
 ): { entries: CartEntry[]; budgetLeft: number } {
   const isAllowedKey = makeKeyFilter(diets, allergies);
 
-  const cart: CartEntry[] = [];
-  const cartKeys = new Set<string>();
-  const seenProduct = new Set<string>(); // dedup by "price-unit"
-  let budgetLeft = weeklyBudget;
-  let proteinAcquired = 0;
-  let calsAcquired = 0;
+  const cart: CartEntry[] = [...existing];
+  const cartKeys = new Set<string>(existing.map((e) => e.key));
+  const seenProduct = new Set<string>(existing.map((e) => productId(e.defPrice, e.defUnit))); // dedup by "price-unit"
+  let budgetLeft = +(weeklyBudget - existing.reduce((s, e) => s + e.totalCost, 0)).toFixed(2);
+  let proteinAcquired = existing.reduce((s, e) => s + e.proteinG, 0);
+  let calsAcquired = existing.reduce((s, e) => s + e.cals, 0);
 
   // ── Phase 1: Proteins ────────────────────────────────────────────────────────
   // When the user gave no body weight, derive an implicit goal from the calorie
@@ -316,7 +322,7 @@ function buildTargetedCart(
   // sane amount instead of buying one package of every protein in the catalog.
   const weeklyProteinGoal = weeklyProteinTarget ?? Math.round((weeklyCalTarget * 0.25) / 4);
   const proteinBudgetFraction = goal === "muscle_gain" ? 0.5 : 0.4;
-  let proteinBudget = weeklyBudget * proteinBudgetFraction;
+  let proteinBudget = Math.min(weeklyBudget * proteinBudgetFraction, budgetLeft);
 
   // Protein supplements are variety items; exclude from the bulk-protein phase so
   // they don't consume the entire protein budget before whole-food proteins are bought.
@@ -428,7 +434,8 @@ function expandCartForMealVariety(
   allergies: string[],
   dislikedIds: Set<string>,
   goal: string,
-  stateMultiplier: number
+  stateMultiplier: number,
+  targetProteinRatio: number | null = null
 ): void {
   // One expensive meal (e.g. one needing a $26 protein-powder tub) must not eat
   // the whole variety budget — skip meals whose missing ingredients cost more.
@@ -436,12 +443,79 @@ function expandCartForMealVariety(
   const baseFilter = (m: Meal, type: Meal["type"]) =>
     m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
 
+  // With a protein target, spend the variety budget where it buys the most
+  // cookable meals: cheapest missing-ingredient set first, so shared staples
+  // (peanut butter, bread, bananas) cascade across many meals. Ties break
+  // toward meals whose protein density doesn't exceed the target — portions
+  // are scaled to the calorie target, so a lighter-than-target meal can be
+  // paired upward against the catalog's abundant dense meals, while a slate
+  // that's uniformly denser than the target always over-delivers protein.
+  // Without a protein target, keep the goal-based score.
+  const densityPenalty = (m: Meal) => {
+    const dev = proteinCalRatio(m) - (targetProteinRatio as number);
+    return dev > 0 ? dev : -dev * 0.25;
+  };
+  const unlockCost = (m: Meal) =>
+    collectMissingProducts(m, cartEntries)
+      .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0);
+  const rank = (m: Meal) =>
+    targetProteinRatio !== null
+      ? -(unlockCost(m) / 10 + densityPenalty(m))
+      : scoreMeal(m, goal);
+
+  // Light-coverage pass: every slot needs a few of its lightest meals
+  // cookable, or no day can be composed near the target ratio — the cheapest
+  // unlocks alone tend to be the protein-dense meals that piggyback on the
+  // Phase-1 protein purchases. Runs before the counts below so the unlocked
+  // meals are counted once.
+  if (targetProteinRatio !== null) {
+    // Pool the 5 lightest meals of every slot, then repeatedly buy the
+    // cheapest missing-ingredient set among them (up to 3 light meals per
+    // slot). Cheapest-first exploits shared staples — one peanut-butter
+    // purchase makes several other light meals free — so the variety budget
+    // covers far more than a slot-by-slot pass would.
+    const lightBySlot = new Map<Meal["type"], Meal[]>(
+      MEAL_SLOTS.map((type) => [
+        type,
+        meals
+          .filter((m) => baseFilter(m, type))
+          .sort((a, b) => proteinCalRatio(a) - proteinCalRatio(b))
+          .slice(0, 5),
+      ])
+    );
+    const lightCount = (type: Meal["type"]) =>
+      lightBySlot.get(type)!.filter((m) => mealEligibleFromCart(m, cartEntries)).length;
+    while (true) {
+      let cheapest: { meal: Meal; missing: Array<{ key: string; def: PurchasableUnitDef }>; cost: number } | null = null;
+      for (const type of MEAL_SLOTS) {
+        if (lightCount(type) >= 3) continue;
+        for (const meal of lightBySlot.get(type)!) {
+          if (mealEligibleFromCart(meal, cartEntries)) continue;
+          const missing = collectMissingProducts(meal, cartEntries);
+          const cost = +missing
+            .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0)
+            .toFixed(2);
+          if (cost > perMealCap || cost > budgetRef.remaining) continue;
+          if (!cheapest || cost < cheapest.cost) cheapest = { meal, missing, cost };
+        }
+      }
+      if (!cheapest) break;
+      for (const { key, def } of cheapest.missing) {
+        cartEntries.push(makeCartEntry(key, def, 1, stateMultiplier));
+      }
+      budgetRef.remaining = +(budgetRef.remaining - cheapest.cost).toFixed(2);
+      console.log(
+        `[generatePlan] light-coverage: ${cheapest.meal.type} "${cheapest.meal.id}" unlocked for $${cheapest.cost} — $${budgetRef.remaining} left`
+      );
+    }
+  }
+
   const slots = MEAL_SLOTS.map((type) => ({
     type,
     count: meals.filter((m) => baseFilter(m, type) && mealEligibleFromCart(m, cartEntries)).length,
     candidates: meals
       .filter((m) => baseFilter(m, type) && !mealEligibleFromCart(m, cartEntries))
-      .sort((a, b) => scoreMeal(b, goal) - scoreMeal(a, goal)),
+      .sort((a, b) => rank(b) - rank(a)),
     idx: 0,
   }));
 
@@ -755,21 +829,62 @@ function balanceDailyCalories(week: DayMeals[]): void {
 // Scales each day's portions toward the calorie target, capped at 0.5×–2× per
 // meal. Returns true if any day hit the cap (and may sit short of the target).
 
-function scaleWeekToCalorieTarget(week: DayMeals[], calorieTarget: number): boolean {
+function scaleWeekToCalorieTarget(
+  week: DayMeals[],
+  calorieTarget: number,
+  dailyProteinTarget: number | null = null
+): boolean {
   let capped = false;
   for (const day of week) {
     const baseTotal = day.breakfast.calories + day.lunch.calories + day.dinner.calories + day.snack.calories;
     const raw = calorieTarget / Math.max(baseTotal, 1);
-    const multiplier = Math.min(2.0, Math.max(0.5, raw));
+    const uniform = Math.min(2.0, Math.max(0.5, raw));
     if (raw > 2.0 || raw < 0.5) capped = true;
 
-    day.breakfast = scaleMeal(day.breakfast, multiplier);
-    day.lunch     = scaleMeal(day.lunch,     multiplier);
-    day.dinner    = scaleMeal(day.dinner,    multiplier);
-    day.snack     = scaleMeal(day.snack,     multiplier);
+    const mult: Record<MealKey, number> = { breakfast: uniform, lunch: uniform, dinner: uniform, snack: uniform };
+    if (dailyProteinTarget) redistributeCaloriesForProtein(day, mult, dailyProteinTarget);
+
+    day.breakfast = scaleMeal(day.breakfast, mult.breakfast);
+    day.lunch     = scaleMeal(day.lunch,     mult.lunch);
+    day.dinner    = scaleMeal(day.dinner,    mult.dinner);
+    day.snack     = scaleMeal(day.snack,     mult.snack);
     recomputeDayTotals(day);
   }
   return capped;
+}
+
+// Shifts calories between a day's meals — within the 0.5×–2× per-meal caps and
+// keeping the day's total calories unchanged — to pull delivered protein toward
+// the daily target. Protein density (g/cal) is scale-invariant, so moving
+// calories from a denser meal to a lighter one trades protein against the
+// density gap without touching the calorie total.
+function redistributeCaloriesForProtein(
+  day: DayMeals,
+  mult: Record<MealKey, number>,
+  proteinTarget: number
+): void {
+  const slots: MealKey[] = ["breakfast", "lunch", "dinner", "snack"];
+  const density = (k: MealKey) => day[k].protein / Math.max(day[k].calories, 1);
+  for (let iter = 0; iter < 8; iter++) {
+    const protein = slots.reduce((s, k) => s + day[k].protein * mult[k], 0);
+    const over = protein - proteinTarget;
+    if (Math.abs(over) < 1) break;
+    const byDensity = [...slots].sort((a, b) => density(b) - density(a)); // densest first
+    const donor = over > 0
+      ? byDensity.find((k) => mult[k] > 0.51)
+      : [...byDensity].reverse().find((k) => mult[k] > 0.51);
+    const recv = over > 0
+      ? [...byDensity].reverse().find((k) => k !== donor && mult[k] < 1.99)
+      : byDensity.find((k) => k !== donor && mult[k] < 1.99);
+    if (!donor || !recv) break;
+    const gap = density(donor) - density(recv); // g of protein per shifted calorie
+    if (Math.abs(gap) < 1e-4 || (over > 0) !== (gap > 0)) break;
+    const wanted = over / gap; // calories to move donor → recv (positive both directions)
+    const x = Math.min(wanted, (mult[donor] - 0.5) * day[donor].calories, (2.0 - mult[recv]) * day[recv].calories);
+    if (x < 5) break;
+    mult[donor] -= x / day[donor].calories;
+    mult[recv]  += x / day[recv].calories;
+  }
 }
 
 // ── Day Meal Selector ─────────────────────────────────────────────────────────
@@ -787,6 +902,73 @@ function selectDayMeals(
   }
   return { breakfast: pick(bPool,"breakfast"), lunch: pick(lPool,"lunch"),
            dinner: pick(dPool,"dinner"), snack: pick(sPool,"snack") };
+}
+
+// ── Protein-Aware Day Selector ────────────────────────────────────────────────
+// Used when a protein target exists. Portion scaling preserves each day's
+// protein:calorie ratio, so the only way delivered protein can match the
+// target is to compose days whose ratio is already close to it — e.g. pair a
+// protein-dense dinner with a light breakfast. Each slot picks the candidate
+// minimizing the projected day-ratio deviation (remaining slots estimated at
+// their pool means). Variety is a soft constraint here: re-serving a meal this
+// week costs an escalating penalty, so a repeat only wins when every fresh
+// option would push the day's protein well outside the target band (the
+// catalog has no low-protein dinners, so strict no-repeat weeks are forced
+// onto the protein-dense tail by midweek). Meals served in earlier weeks
+// carry a smaller penalty so fresh-this-month meals win ties.
+
+const RATIO_SLOT_ORDER: MealKey[] = ["dinner", "lunch", "breakfast", "snack"];
+const CROSS_WEEK_PENALTY = 0.015;      // ratio-deviation units
+const INTRA_WEEK_REUSE_PENALTY = 0.015; // per prior serving this week
+const CAL_FLOOR_WEIGHT = 0.5;          // penalty per fraction of calorie-floor shortfall
+
+function selectDayMealsForRatio(
+  pools: Record<MealKey, Meal[]>,
+  usedThisWeek: Record<MealKey, Map<string, number>>,
+  usedAcrossWeeks: Set<string>,
+  targetRatio: number,
+  dailyCalTarget: number | null,
+  dayLabel: string
+): Record<MealKey, Meal> {
+  const means = {} as Record<MealKey, { cal: number; prot: number }>;
+  for (const slot of RATIO_SLOT_ORDER) {
+    const pool = pools[slot];
+    means[slot] = {
+      cal: pool.reduce((s, m) => s + m.calories, 0) / pool.length,
+      prot: pool.reduce((s, m) => s + m.protein, 0) / pool.length,
+    };
+  }
+  const picked = {} as Record<MealKey, Meal>;
+  let cals = 0, prot = 0;
+  for (let i = 0; i < RATIO_SLOT_ORDER.length; i++) {
+    const slot = RATIO_SLOT_ORDER[i];
+    const used = usedThisWeek[slot];
+    let expCal = 0, expProt = 0;
+    for (const rest of RATIO_SLOT_ORDER.slice(i + 1)) {
+      expCal += means[rest].cal;
+      expProt += means[rest].prot;
+    }
+    // Portions cap at 2× — a day whose base calories fall below half the
+    // calorie target can never reach it, so penalize undersized days too.
+    const calFloor = dailyCalTarget ? dailyCalTarget / 2 : 0;
+    let best = pools[slot][0], bestScore = Infinity;
+    for (const m of pools[slot]) {
+      const projCals = cals + m.calories + expCal;
+      const ratio = ((prot + m.protein + expProt) * 4) / Math.max(projCals, 1);
+      const score =
+        Math.abs(ratio - targetRatio) +
+        (used.get(m.id) ?? 0) * INTRA_WEEK_REUSE_PENALTY +
+        (!used.has(m.id) && usedAcrossWeeks.has(m.id) ? CROSS_WEEK_PENALTY : 0) +
+        (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0);
+      if (score < bestScore - 1e-9) { best = m; bestScore = score; }
+    }
+    used.set(best.id, (used.get(best.id) ?? 0) + 1);
+    picked[slot] = best;
+    cals += best.calories;
+    prot += best.protein;
+    console.log(`[generatePlan] ${dayLabel} ${slot}: ratio-pick → "${best.name}" (id=${best.id})`);
+  }
+  return picked;
 }
 
 // ── Main Export ───────────────────────────────────────────────────────────────
@@ -823,6 +1005,9 @@ export function generatePlan(
     ? Math.round((PROTEIN_RATE[goal] ?? 0.6) * weightLbs)
     : null;
   const weeklyProteinTarget = dailyProteinTarget ? dailyProteinTarget * 7 : null;
+  // Fraction of daily calories that should come from protein — drives variety
+  // purchasing and day composition so delivered protein tracks the target.
+  const targetProteinRatio = dailyProteinTarget ? (dailyProteinTarget * 4) / dailyCals : null;
 
   console.log(
     `[generatePlan] targets — cal: ${dailyCals}/day (${weeklyCalTarget}/wk)` +
@@ -832,12 +1017,29 @@ export function generatePlan(
   // ── Step 2: Build the grocery cart ───────────────────────────────────────────
   // Phase 1 → proteins, Phase 2 → carbs, Phase 3 → meal-aware variety expansion,
   // Phase 4 → leftover budget on breadth staples. All phases are budget-capped.
-  const { entries: cartEntries, budgetLeft } =
-    buildTargetedCart(goal, diets, allergies, perPersonBudget, weeklyCalTarget, weeklyProteinTarget, stateMultiplier);
-
-  const budgetRef = { remaining: budgetLeft };
-  expandCartForMealVariety(cartEntries, budgetRef, perPersonBudget, diets, allergies, dislikedSet, goal, stateMultiplier);
-  spendRemainingOnVariety(cartEntries, budgetRef, diets, allergies, stateMultiplier);
+  //
+  // With a protein target the order inverts: meal-aware variety buys first
+  // (half the budget), then Phases 1–2 top up bulk protein/calorie supply with
+  // the rest. Macro-per-dollar supply shopping is meal-agnostic — run first it
+  // strands most of the budget in products the density-matched meals never
+  // use, starving the pools the day selector needs to hit the protein target.
+  let cartEntries: CartEntry[];
+  let budgetLeft: number;
+  if (targetProteinRatio !== null) {
+    cartEntries = [];
+    const expandRef = { remaining: +(perPersonBudget * 0.5).toFixed(2) };
+    expandCartForMealVariety(cartEntries, expandRef, perPersonBudget, diets, allergies, dislikedSet, goal, stateMultiplier, targetProteinRatio);
+    ({ entries: cartEntries, budgetLeft } =
+      buildTargetedCart(goal, diets, allergies, perPersonBudget, weeklyCalTarget, weeklyProteinTarget, stateMultiplier, cartEntries));
+    const topUpRef = { remaining: budgetLeft };
+    spendRemainingOnVariety(cartEntries, topUpRef, diets, allergies, stateMultiplier);
+  } else {
+    ({ entries: cartEntries, budgetLeft } =
+      buildTargetedCart(goal, diets, allergies, perPersonBudget, weeklyCalTarget, weeklyProteinTarget, stateMultiplier));
+    const budgetRef = { remaining: budgetLeft };
+    expandCartForMealVariety(cartEntries, budgetRef, perPersonBudget, diets, allergies, dislikedSet, goal, stateMultiplier, targetProteinRatio);
+    spendRemainingOnVariety(cartEntries, budgetRef, diets, allergies, stateMultiplier);
+  }
 
   const cartCost = +cartEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2);
   const cartCals = cartEntries.reduce((s, e) => s + e.cals, 0);
@@ -919,9 +1121,16 @@ export function generatePlan(
   const week1Days: DayMeals[] = [];
   const usedTracker = freshUsedTracker();
   const week1Length = Math.min(totalDays, 7);
+  const freshUsedSets = (): Record<MealKey, Map<string, number>> =>
+    ({ breakfast: new Map(), lunch: new Map(), dinner: new Map(), snack: new Map() });
+  const week1Used = freshUsedSets();
 
   for (let i = 0; i < week1Length; i++) {
-    const { breakfast, lunch, dinner, snack } = selectDayMeals(bPool, lPool, dPool, sPool, usedTracker, DAY_NAMES[i % 7]);
+    const { breakfast, lunch, dinner, snack } = targetProteinRatio
+      ? selectDayMealsForRatio(
+          { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
+          week1Used, new Set(), targetProteinRatio, calorieTarget ?? null, DAY_NAMES[i % 7])
+      : selectDayMeals(bPool, lPool, dPool, sPool, usedTracker, DAY_NAMES[i % 7]);
     week1Days.push({
       day: DAY_NAMES[i % 7],
       date: formatDate(i),
@@ -937,7 +1146,10 @@ export function generatePlan(
   }
 
   // ── Step 7: Balance calorie distribution across days ─────────────────────────
-  balanceDailyCalories(week1Days);
+  // The ratio-aware selector already balances day size (calorie-floor term) and
+  // pairs meals by protein density per day — cross-day swaps would scramble
+  // that pairing, so the balancer only runs for the legacy selector.
+  if (!targetProteinRatio) balanceDailyCalories(week1Days);
 
   // ── Step 7.5: Apply user meal swaps ──────────────────────────────────────────
   // Swaps replace the deterministic pick for a (day, slot). They run after
@@ -957,7 +1169,7 @@ export function generatePlan(
   }
 
   // ── Step 8: Scale portions to hit the daily calorie target ────────────────────
-  const portionCapped = calorieTarget ? scaleWeekToCalorieTarget(week1Days, calorieTarget) : false;
+  const portionCapped = calorieTarget ? scaleWeekToCalorieTarget(week1Days, calorieTarget, dailyProteinTarget) : false;
 
   if (portionCapped && budgetCapMessage === undefined && calorieTarget) {
     const avgCal = Math.round(week1Days.reduce((s, d) => s + d.dailyCalories, 0) / week1Days.length);
@@ -1018,11 +1230,15 @@ export function generatePlan(
 
     const weekDays: DayMeals[] = [];
     const weekTracker = freshUsedTracker();
+    const weekUsed = freshUsedSets();
     const weekLength = Math.min(totalDays - w * 7, 7);
     for (let i = 0; i < weekLength; i++) {
       const dayIndex = w * 7 + i;
-      const { breakfast, lunch, dinner, snack } =
-        selectDayMeals(wbPool, wlPool, wdPool, wsPool, weekTracker, `wk${w + 1} ${DAY_NAMES[i]}`);
+      const { breakfast, lunch, dinner, snack } = targetProteinRatio
+        ? selectDayMealsForRatio(
+            { breakfast: wbPool, lunch: wlPool, dinner: wdPool, snack: wsPool },
+            weekUsed, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, `wk${w + 1} ${DAY_NAMES[i]}`)
+        : selectDayMeals(wbPool, wlPool, wdPool, wsPool, weekTracker, `wk${w + 1} ${DAY_NAMES[i]}`);
       weekDays.push({
         day: DAY_NAMES[i],
         date: formatDate(dayIndex),
@@ -1037,8 +1253,8 @@ export function generatePlan(
       });
     }
 
-    balanceDailyCalories(weekDays);
-    if (calorieTarget) scaleWeekToCalorieTarget(weekDays, calorieTarget);
+    if (!targetProteinRatio) balanceDailyCalories(weekDays);
+    if (calorieTarget) scaleWeekToCalorieTarget(weekDays, calorieTarget, dailyProteinTarget);
     for (const day of weekDays) {
       for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
     }
