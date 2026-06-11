@@ -174,7 +174,7 @@ function formatDate(dayOffset: number): string {
 }
 
 function categorizeIngredient(key: string): "protein" | "carb" | "produce" {
-  if (/chicken|turkey|beef|tuna|salmon|shrimp|egg|tofu|yogurt|cottage|cheese|ham|bacon|lentil|chickpea|bean|protein powder/.test(key)) return "protein";
+  if (/chicken|turkey|beef|steak|sirloin|tuna|salmon|shrimp|egg|tofu|yogurt|cottage|cheese|ham|bacon|lentil|chickpea|bean|protein powder/.test(key)) return "protein";
   if (/oat|rice|bread|pasta|tortilla|bagel|pita|quinoa|granola|potato|noodle/.test(key)) return "carb";
   return "produce";
 }
@@ -317,8 +317,9 @@ function buildTargetedCart(
 
     const remaining = weeklyProteinTarget ? weeklyProteinTarget - proteinAcquired : 0;
     const byProtein = weeklyProteinTarget ? Math.ceil(remaining / c.proteinPerPkg) : 1;
-    const byBudget = Math.max(1, Math.floor(proteinBudget / c.ppu));
-    const packages = Math.max(1, Math.min(byProtein, byBudget));
+    const byBudget = Math.floor(proteinBudget / c.ppu);
+    if (byBudget < 1) continue; // skip proteins we can't afford (keeps budget tight)
+    const packages = Math.min(byProtein, byBudget);
 
     const entry = addEntry(c.key, packages, c.ppu);
     cart.push(entry);
@@ -360,8 +361,9 @@ function buildTargetedCart(
     carbSeenProduct.add(dedupeId);
 
     const byCal = Math.ceil(calsStillNeeded / c.def.calsPerPkg!);
-    const byBudget = Math.max(1, Math.floor(budgetLeft / c.ppu));
-    const packages = Math.max(1, Math.min(byCal, byBudget));
+    const byBudget = Math.floor(budgetLeft / c.ppu);
+    if (byBudget < 1) break; // can't afford even one package — stop buying carbs
+    const packages = Math.min(byCal, byBudget, 4); // cap at 4 per carb; loop continues to next
 
     const entry = addEntry(c.key, packages, c.ppu);
     cart.push(entry);
@@ -381,8 +383,8 @@ function buildTargetedCart(
     // (b) produce essentials — buy 1 pkg each; onion/tomato need more
     "baby spinach", "broccoli florets", "banana", "bell pepper",
     "tomato", "onion",
-    // (c) carb variety
-    "whole wheat bread", "corn tortillas",
+    // (c) carb variety — oats is a breakfast staple not guaranteed by Phase 2
+    "rolled oats", "whole wheat bread", "corn tortillas",
     // (d) extras
     "peanut butter", "plain greek yogurt", "low-fat cottage cheese",
   ];
