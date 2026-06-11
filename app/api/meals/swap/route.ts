@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     .from("meal_plans")
     .update({
       meal_swaps: storedSwaps,
-      grocery_list: plan.weeklyCart.items.map((i) => ({
+      grocery_list: plan.weeklyCarts[0].items.map((i) => ({
         name: i.key,
         count: i.packages,
         unitPrice: i.pricePerUnit,

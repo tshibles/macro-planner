@@ -55,7 +55,9 @@ export interface MealPlan {
   proteinTarget?: number;
   budgetCapMessage?: string;
   cartFallbackUsed?: boolean;
-  weeklyCart: WeeklyCartSummary;
+  // One cart per week, pruned to the ingredients that week's meals actually
+  // use. weeklyCarts[w] pairs with weeks[w].
+  weeklyCarts: WeeklyCartSummary[];
 }
 
 // Internal purchase record — a superset of CartItem with tracking fields.
@@ -648,7 +650,7 @@ function buildFinalPool(
 
 // ── Grocery List Builder (kept for internal use) ───────────────────────────────
 // Aggregates all ingredients from the week 1 meal template. Used as a utility
-// function; the displayed weeklyCart comes from buildTargetedCart instead.
+// function; the displayed weeklyCarts come from buildTargetedCart instead.
 
 function buildGroceryFromMeals(week1: DayMeals[], stateMultiplier: number): WeeklyCartSummary {
   const ingredientMap = new Map<string, { amounts: string[]; rawKey: string }>();
@@ -675,6 +677,40 @@ function buildGroceryFromMeals(week1: DayMeals[], stateMultiplier: number): Week
     };
   });
   return { items, totalCost: +items.reduce((s, i) => s + i.totalCost, 0).toFixed(2) };
+}
+
+// ── Per-Week Cart Pruning ─────────────────────────────────────────────────────
+// Phases 1–2 buy by macro math, not by recipe, so the full cart can contain
+// items (e.g. a protein bought purely for its protein-per-dollar) that no
+// selected meal cooks. Each week keeps only the items its own meals use, so
+// every week's grocery list matches that week's plan exactly.
+
+function pruneCartToWeek(cartEntries: CartEntry[], weekDays: DayMeals[], label: string): CartEntry[] {
+  const usedProducts = new Set<string>();
+  for (const day of weekDays) {
+    for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
+      for (const ing of meal.ingredients) {
+        const key = normalizeKey(ing.item);
+        if (isPantryStaple(key)) continue;
+        const def = lookupPurchasable(key);
+        if (def) usedProducts.add(productId(def.price, def.unit));
+      }
+    }
+  }
+  const kept = cartEntries.filter((e) => usedProducts.has(productId(e.defPrice, e.defUnit)));
+  const pruned = cartEntries.filter((e) => !usedProducts.has(productId(e.defPrice, e.defUnit)));
+  if (pruned.length > 0) {
+    console.log(`[generatePlan] ${label}: pruned ${pruned.length} unused cart items: ${pruned.map((e) => e.key).join(", ")}`);
+  }
+  return kept;
+}
+
+function cartSummaryFromEntries(entries: CartEntry[]): WeeklyCartSummary {
+  return {
+    items: entries.map(({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost }) =>
+      ({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost })),
+    totalCost: +entries.reduce((s, e) => s + e.totalCost, 0).toFixed(2),
+  };
 }
 
 // ── Pool Index Tracker ────────────────────────────────────────────────────────
@@ -933,26 +969,8 @@ export function generatePlan(
     }
   }
 
-  // ── Step 9: Prune cart items no selected meal uses ───────────────────────────
-  // Phases 1–2 buy by macro math, not by recipe, so the cart can contain items
-  // (e.g. a protein bought purely for its protein-per-dollar) that no selected
-  // meal cooks. Remove them so the grocery list matches the plan exactly.
-  const usedProducts = new Set<string>();
-  for (const day of week1Days) {
-    for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
-      for (const ing of meal.ingredients) {
-        const key = normalizeKey(ing.item);
-        if (isPantryStaple(key)) continue;
-        const def = lookupPurchasable(key);
-        if (def) usedProducts.add(productId(def.price, def.unit));
-      }
-    }
-  }
-  const finalEntries = cartEntries.filter((e) => usedProducts.has(productId(e.defPrice, e.defUnit)));
-  const pruned = cartEntries.filter((e) => !usedProducts.has(productId(e.defPrice, e.defUnit)));
-  if (pruned.length > 0) {
-    console.log(`[generatePlan] pruned ${pruned.length} unused cart items: ${pruned.map((e) => e.key).join(", ")}`);
-  }
+  // ── Step 9: Prune week 1's cart to items its selected meals use ──────────────
+  const finalEntries = pruneCartToWeek(cartEntries, week1Days, "week 1");
 
   // ── Step 9.5: Buy ingredients swapped-in meals still need ───────────────────
   // The swap UI only offers cart-eligible meals, so this is normally a no-op,
@@ -976,12 +994,15 @@ export function generatePlan(
 
   // ── Step 10: Generate remaining weeks (seeded planSalt + weekIndex) ──────────
   // Each later week re-runs pool building and meal selection against the SAME
-  // cart as week 1 (same budget, same purchases — the user shops the same list
-  // weekly) but with a week-specific seed, so the shuffle prioritizes different
-  // meals. Meals served in earlier weeks are deprioritized (moved to the back of
-  // the pool), not excluded — the catalog (~28 meals/slot) can't fill a month
-  // repeat-free. Determinism: planSalt + weekIndex always yields the same week.
+  // full purchasable cart as week 1 (same budget, same purchase candidates) but
+  // with a week-specific seed, so the shuffle prioritizes different meals. Each
+  // week's grocery list is then pruned to the ingredients its own meals use, so
+  // it can only cost less than the budget-capped full cart. Meals served in
+  // earlier weeks are deprioritized (moved to the back of the pool), not
+  // excluded — the catalog (~28 meals/slot) can't fill a month repeat-free.
+  // Determinism: planSalt + weekIndex always yields the same week and cart.
   const days: DayMeals[] = [...week1Days];
+  const weeklyCarts: WeeklyCartSummary[] = [cartSummaryFromEntries(finalEntries)];
   const usedAcrossWeeks = new Set<string>();
   for (const day of week1Days) {
     for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
@@ -1022,6 +1043,7 @@ export function generatePlan(
       for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
     }
     days.push(...weekDays);
+    weeklyCarts.push(cartSummaryFromEntries(pruneCartToWeek(cartEntries, weekDays, `week ${w + 1}`)));
   }
 
   const weeks: DayMeals[][] = Array.from({ length: numWeeks }, (_, w) => days.slice(w * 7, w * 7 + 7));
@@ -1029,14 +1051,9 @@ export function generatePlan(
   const avgDailyCalories = Math.round(days.reduce((s, d) => s + d.dailyCalories, 0) / days.length);
   const avgDailyProtein  = Math.round(days.reduce((s, d) => s + d.dailyProtein,  0) / days.length);
 
-  // ── Step 11: Return the pruned cart as weeklyCart ─────────────────────────────
-  const weeklyCart: WeeklyCartSummary = {
-    items: finalEntries.map(({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost }) =>
-      ({ key, displayName, category, packages, purchaseLabel, pricePerUnit, totalCost })),
-    totalCost: +finalEntries.reduce((s, e) => s + e.totalCost, 0).toFixed(2),
-  };
-  const weeklyEstimatedCost = weeklyCart.totalCost;
-  const totalPlanCost = +(weeklyEstimatedCost * numWeeks).toFixed(2);
+  // ── Step 11: Return the per-week pruned carts ─────────────────────────────────
+  const weeklyEstimatedCost = weeklyCarts[0].totalCost;
+  const totalPlanCost = +weeklyCarts.reduce((s, c) => s + c.totalCost, 0).toFixed(2);
 
   return {
     days,
@@ -1051,6 +1068,6 @@ export function generatePlan(
     proteinTarget: dailyProteinTarget ?? undefined,
     budgetCapMessage,
     cartFallbackUsed: cartFallbackUsed || undefined,
-    weeklyCart,
+    weeklyCarts,
   };
 }

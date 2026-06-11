@@ -942,7 +942,7 @@ function PlanContent() {
 
   const swapAlternatives = swapTarget && plan
     ? findSwapAlternatives(
-        plan.weeklyCart.items.map((i) => i.key),
+        (plan.weeklyCarts[currentWeek] ?? plan.weeklyCarts[0]).items.map((i) => i.key),
         swapTarget.slot,
         (plan.weeks[currentWeek] ?? []).flatMap((d) => [d.breakfast.id, d.lunch.id, d.dinner.id, d.snack.id]),
         selectedDiets,

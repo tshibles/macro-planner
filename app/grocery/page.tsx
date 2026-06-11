@@ -10,9 +10,9 @@ import { STATE_MULTIPLIERS, STATE_NAMES } from "@/app/data/stateMultipliers";
 import { isPantryStaple } from "@/app/data/purchasableUnits";
 import { normalizeKey } from "@/app/lib/normalizeIngredient";
 
-function extractPantryItems(week1: DayMeals[]): string[] {
+function extractPantryItems(weekDays: DayMeals[]): string[] {
   const seen = new Set<string>();
-  for (const day of week1) {
+  for (const day of weekDays) {
     for (const meal of [day.breakfast, day.lunch, day.dinner, day.snack]) {
       for (const ing of meal.ingredients) {
         const key = normalizeKey(ing.item);
@@ -83,9 +83,10 @@ function GroceryContent() {
   const stateName = STATE_NAMES[stateParam] ?? null;
 
   const [plan, setPlan] = useState<MealPlan | null>(null);
-  const [pantryItems, setPantryItems] = useState<string[]>([]);
   const [budgetCapMessage, setBudgetCapMessage] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
+  // Mirrors the meal plan page's week navigation — each week has its own cart.
+  const [currentWeek, setCurrentWeek] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,8 +110,6 @@ function GroceryContent() {
       .then((data: MealPlan) => {
         if (cancelled) return;
         setPlan(data);
-        const week1: DayMeals[] = data.weeks?.[0] ?? [];
-        setPantryItems(extractPantryItems(week1));
         if (data.budgetCapMessage) setBudgetCapMessage(data.budgetCapMessage);
         setPlanLoading(false);
       })
@@ -118,14 +117,24 @@ function GroceryContent() {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cartItems = plan?.weeklyCart.items ?? [];
-  const totalCost = plan?.weeklyCart.totalCost ?? 0;
+  const weekCart = plan?.weeklyCarts?.[currentWeek];
+  const cartItems = weekCart?.items ?? [];
+  const totalCost = weekCart?.totalCost ?? 0;
+
+  // Pantry staples come from the viewed week's meals, like the cart.
+  const pantryItems = useMemo(
+    () => extractPantryItems(plan?.weeks?.[currentWeek] ?? []),
+    [plan, currentWeek]
+  );
 
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (planLoading || cartItems.length === 0) return;
+    // The DB stores a single list — save week 1's cart, independent of the
+    // week being viewed.
+    const week1Items = plan?.weeklyCarts?.[0]?.items ?? [];
+    if (planLoading || week1Items.length === 0) return;
     setSaving(true);
     fetch("/api/grocery/save", {
       method: "POST",
@@ -145,7 +154,7 @@ function GroceryContent() {
         state: stateParam || null,
         targetWeight: targetWeightParam || null,
         goalTimeframe: goalTimeframeParam || null,
-        groceryList: cartItems.map((i) => ({
+        groceryList: week1Items.map((i) => ({
           name: i.key,
           count: i.packages,
           unitPrice: i.pricePerUnit,
@@ -243,7 +252,9 @@ function GroceryContent() {
             </span>
           </h1>
           <p className="text-sm text-gray-500 mb-3">
-            Your weekly shopping list — the same every week for the full plan.
+            {numWeeks > 1
+              ? `Your shopping list for week ${currentWeek + 1} — each week's list matches that week's meals.`
+              : "Your shopping list for the week — matched to your meal plan."}
           </p>
           <div className="flex flex-wrap gap-2">
             <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
@@ -262,11 +273,59 @@ function GroceryContent() {
           </div>
         </div>
 
+        {/* Week navigation — mirrors the meal plan page */}
+        {numWeeks > 1 && (
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setCurrentWeek((w) => Math.max(0, w - 1))}
+                disabled={currentWeek === 0}
+                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <div className="text-center">
+                <p className="text-white font-semibold text-sm">Week {currentWeek + 1}</p>
+                <p className="text-xs text-gray-600">of {numWeeks}</p>
+              </div>
+              <button
+                onClick={() => setCurrentWeek((w) => Math.min(numWeeks - 1, w + 1))}
+                disabled={currentWeek === numWeeks - 1}
+                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {numWeeks <= 8 && (
+              <div className="hidden sm:flex items-center gap-1.5">
+                {Array.from({ length: numWeeks }, (_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentWeek(i)}
+                    className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                      currentWeek === i
+                        ? "bg-brand-500 text-white"
+                        : "bg-white/6 text-gray-400 hover:bg-white/12 hover:text-white"
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Total cost banner */}
         <div className="mb-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-6 py-5 flex items-center justify-between">
           <div>
             <p className="text-xs text-emerald-400/80 uppercase tracking-wider font-medium mb-1">
-              Est. weekly grocery total
+              {numWeeks > 1 ? `Est. week ${currentWeek + 1} grocery total` : "Est. weekly grocery total"}
             </p>
             <p className="text-4xl font-extrabold text-emerald-300">${totalCost.toFixed(2)}</p>
             {stateName && (
