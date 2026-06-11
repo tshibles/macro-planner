@@ -1,5 +1,14 @@
 import { createClient } from "@/app/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+
+// Service-role client bypasses RLS — only used server-side in this route.
+function adminClient() {
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(req: Request) {
   const supabase = createClient();
@@ -48,6 +57,27 @@ export async function POST(req: Request) {
   if (error) {
     return NextResponse.json(
       { error: "Failed to record trial" },
+      { status: 500 }
+    );
+  }
+
+  // free_trial_used stays true permanently; this row is what actually grants
+  // 7 days of access via the subscriptions status check.
+  const expiresAt = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const { error: subError } = await adminClient()
+    .from("subscriptions")
+    .insert({
+      user_id: user.id,
+      plan_tier: "free",
+      plan_expires_at: expiresAt,
+    });
+
+  if (subError) {
+    return NextResponse.json(
+      { error: "Failed to activate trial access" },
       { status: 500 }
     );
   }
