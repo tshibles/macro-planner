@@ -37,10 +37,11 @@ export async function POST(req: NextRequest) {
   const userData = await loadUserPlanData(supabase, user.id);
 
   // Merge into the swaps stored for this salt; swaps made against another
-  // salt belong to a previous plan and are discarded.
+  // salt belong to a previous plan and are discarded. The FULL day index is
+  // stored so a swap made while viewing week 3 edits week 3 — not week 1.
   const existing: MealSwap[] =
     userData.savedSwaps?.salt === planSalt ? userData.savedSwaps.swaps : [];
-  const swap: MealSwap = { dayIndex: dayIndex % 7, slot, mealId: newMealId };
+  const swap: MealSwap = { dayIndex, slot, mealId: newMealId };
   const swaps = [...existing.filter((s) => !(s.dayIndex === swap.dayIndex && s.slot === slot)), swap];
   const storedSwaps: StoredSwaps = { salt: planSalt, swaps };
 

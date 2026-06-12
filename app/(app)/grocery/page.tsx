@@ -86,6 +86,7 @@ function GroceryContent() {
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [budgetCapMessage, setBudgetCapMessage] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
+  const [genError, setGenError] = useState(false);
   // Mirrors the meal plan page's week navigation — each week has its own cart.
   const [currentWeek, setCurrentWeek] = useState(0);
 
@@ -142,14 +143,21 @@ function GroceryContent() {
         planSalt,
       }),
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`generate-plan ${r.status}`);
+        return r.json();
+      })
       .then((data: MealPlan) => {
         if (cancelled) return;
         setPlan(data);
         if (data.budgetCapMessage) setBudgetCapMessage(data.budgetCapMessage);
         setPlanLoading(false);
       })
-      .catch(() => setPlanLoading(false));
+      .catch(() => {
+        if (cancelled) return;
+        setGenError(true);
+        setPlanLoading(false);
+      });
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -209,10 +217,28 @@ function GroceryContent() {
     [cartItems]
   );
 
+  if (genError) {
+    return (
+      <div className="flex-1 min-h-[60vh] flex items-center justify-center px-4">
+        <div className="max-w-sm w-full text-center bg-white border border-gray-200 rounded-2xl p-8">
+          <p className="text-gray-900 font-semibold mb-2">We couldn&apos;t build your grocery list</p>
+          <p className="text-sm text-gray-600 mb-5">
+            Something went wrong generating your list. Your plan is safe — try again.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (planLoading) {
     return (
       <div className="flex-1 min-h-[60vh] flex items-center justify-center">
-        <div className="text-gray-400 text-sm">Building your grocery list…</div>
+        <div className="text-gray-600 text-sm">Building your grocery list…</div>
       </div>
     );
   }
@@ -243,13 +269,13 @@ function GroceryContent() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-start justify-between gap-4">
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2">
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-2">
               Weekly{" "}
               <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
                 Grocery List
               </span>
             </h1>
-            <div className="flex items-center gap-1.5 text-xs text-gray-600 mt-2 flex-shrink-0">
+            <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-2 flex-shrink-0">
               {saving ? (
                 <>
                   <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -274,16 +300,16 @@ function GroceryContent() {
               : "Your shopping list for the week — matched to your meal plan."}
           </p>
           <div className="flex flex-wrap gap-2">
-            <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+            <span className="text-xs bg-gray-50 border border-gray-200 text-gray-700 rounded-full px-3 py-1">
               {sortedItems.length} items to buy
             </span>
             {numWeeks > 1 && (
-              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+              <span className="text-xs bg-gray-50 border border-gray-200 text-gray-700 rounded-full px-3 py-1">
                 {numWeeks} weeks total
               </span>
             )}
             {stateName && (
-              <span className="text-xs bg-white/6 border border-white/10 text-gray-300 rounded-full px-3 py-1">
+              <span className="text-xs bg-gray-50 border border-gray-200 text-gray-700 rounded-full px-3 py-1">
                 {stateName} · {stateMultiplier >= 1 ? "+" : ""}{Math.round((stateMultiplier - 1) * 100)}% regional
               </span>
             )}
@@ -297,20 +323,20 @@ function GroceryContent() {
               <button
                 onClick={() => setCurrentWeek((w) => Math.max(0, w - 1))}
                 disabled={currentWeek === 0}
-                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:border-brand-300 disabled:opacity-30 disabled:cursor-not-allowed transition"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                   <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
                 </svg>
               </button>
               <div className="text-center">
-                <p className="text-white font-semibold text-sm">Week {currentWeek + 1}</p>
-                <p className="text-xs text-gray-600">of {numWeeks}</p>
+                <p className="text-gray-900 font-semibold text-sm">Week {currentWeek + 1}</p>
+                <p className="text-xs text-gray-400">of {numWeeks}</p>
               </div>
               <button
                 onClick={() => setCurrentWeek((w) => Math.min(numWeeks - 1, w + 1))}
                 disabled={currentWeek === numWeeks - 1}
-                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:border-brand-300 disabled:opacity-30 disabled:cursor-not-allowed transition"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                   <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
@@ -326,8 +352,8 @@ function GroceryContent() {
                     onClick={() => setCurrentWeek(i)}
                     className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
                       currentWeek === i
-                        ? "bg-brand-500 text-white"
-                        : "bg-white/6 text-gray-400 hover:bg-white/12 hover:text-white"
+                        ? "bg-gradient-to-br from-brand-600 to-emerald-700 text-white shadow-md shadow-brand-700/25"
+                        : "bg-gray-50 text-gray-600 hover:bg-brand-100 hover:text-gray-900"
                     }`}
                   >
                     {i + 1}
@@ -339,12 +365,12 @@ function GroceryContent() {
         )}
 
         {/* Total cost banner */}
-        <div className="mb-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-6 py-5 flex items-center justify-between">
+        <div className="mb-6 bg-emerald-50 border border-emerald-300 rounded-2xl px-6 py-5 flex items-center justify-between">
           <div>
-            <p className="text-xs text-emerald-400/80 uppercase tracking-wider font-medium mb-1">
+            <p className="text-xs text-emerald-600/80 uppercase tracking-wider font-medium mb-1">
               {numWeeks > 1 ? `Est. week ${currentWeek + 1} grocery total` : "Est. weekly grocery total"}
             </p>
-            <p className="text-4xl font-extrabold text-emerald-300">${totalCost.toFixed(2)}</p>
+            <p className="text-4xl font-extrabold text-emerald-700">${totalCost.toFixed(2)}</p>
             {stateName && (
               <p className="text-xs text-emerald-500/60 mt-1">
                 Prices adjusted for {stateName} (×{stateMultiplier.toFixed(2)})
@@ -352,8 +378,8 @@ function GroceryContent() {
             )}
           </div>
           <div className="hidden sm:flex flex-col items-end gap-1 text-right">
-            <p className="text-xs text-gray-600">Budget: ${budget}/wk</p>
-            <p className={`text-sm font-semibold ${totalCost <= budget ? "text-emerald-400" : "text-red-400"}`}>
+            <p className="text-xs text-gray-400">Budget: ${budget}/wk</p>
+            <p className={`text-sm font-semibold ${totalCost <= budget ? "text-emerald-600" : "text-red-600"}`}>
               {totalCost <= budget
                 ? `$${(budget - totalCost).toFixed(2)} under budget`
                 : `$${(totalCost - budget).toFixed(2)} over budget`}
@@ -368,53 +394,53 @@ function GroceryContent() {
 
         {/* Budget cap warning */}
         {budgetCapMessage && (
-          <div className="mb-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4 flex items-start gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5">
+          <div className="mb-6 bg-amber-50 border border-amber-300 rounded-2xl px-5 py-4 flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5">
               <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
             </svg>
-            <p className="text-sm text-amber-300">{budgetCapMessage}</p>
+            <p className="text-sm text-amber-700">{budgetCapMessage}</p>
           </div>
         )}
 
         {/* Main grocery table */}
-        <div className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden mb-8">
+        <div className="bg-brand-50/50 border border-gray-200 rounded-2xl overflow-hidden mb-8">
           {/* Table header */}
-          <div className="grid grid-cols-12 gap-2 px-5 py-3 bg-white/[0.03] border-b border-white/8 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          <div className="grid grid-cols-12 gap-2 px-5 py-3 bg-brand-50/50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
             <span className="col-span-5">Ingredient</span>
             <span className="col-span-4 text-center">Amount to buy</span>
             <span className="col-span-3 text-right">Total</span>
           </div>
 
           {/* Rows */}
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-gray-100">
             {sortedItems.map((item) => (
               <div
                 key={item.key}
-                className="grid grid-cols-12 gap-2 px-5 py-3 items-center hover:bg-white/[0.02] transition-colors"
+                className="grid grid-cols-12 gap-2 px-5 py-3 items-center hover:bg-brand-50/40 transition-colors"
               >
                 <div className="col-span-5 min-w-0">
-                  <p className="text-sm text-white font-medium truncate">{displayName(item.key)}</p>
-                  <p className="text-xs text-gray-600 capitalize">{item.category}</p>
+                  <p className="text-sm text-gray-900 font-medium truncate">{displayName(item.key)}</p>
+                  <p className="text-xs text-gray-400 capitalize">{item.category}</p>
                 </div>
                 <div className="col-span-4 text-center">
-                  <span className="inline-flex items-center justify-center rounded-lg bg-white/8 text-gray-200 text-xs font-semibold px-2.5 py-1">
+                  <span className="inline-flex items-center justify-center rounded-lg bg-gray-50 text-gray-200 text-xs font-semibold px-2.5 py-1">
                     {item.purchaseLabel}
                   </span>
                 </div>
                 <div className="col-span-3 text-right">
-                  <span className="text-sm font-semibold text-white">${item.totalCost.toFixed(2)}</span>
+                  <span className="text-sm font-semibold text-gray-900">${item.totalCost.toFixed(2)}</span>
                 </div>
               </div>
             ))}
           </div>
 
           {/* Footer total */}
-          <div className="grid grid-cols-12 gap-2 px-5 py-4 bg-white/[0.04] border-t border-white/10 items-center">
-            <span className="col-span-5 text-sm font-bold text-white">Total</span>
-            <span className="col-span-4 text-center text-xs text-gray-600">
+          <div className="grid grid-cols-12 gap-2 px-5 py-4 bg-white border-t border-gray-200 items-center">
+            <span className="col-span-5 text-sm font-bold text-gray-900">Total</span>
+            <span className="col-span-4 text-center text-xs text-gray-400">
               {sortedItems.length} items
             </span>
-            <span className="col-span-3 text-right text-lg font-extrabold text-emerald-300">
+            <span className="col-span-3 text-right text-lg font-extrabold text-emerald-700">
               ${totalCost.toFixed(2)}
             </span>
           </div>
@@ -422,9 +448,9 @@ function GroceryContent() {
 
         {/* Pantry Staples section */}
         {pantryItems.length > 0 && (
-          <div className="bg-white/[0.02] border border-white/6 rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-white/6">
-              <h2 className="text-sm font-bold text-gray-300 mb-1">Pantry Staples</h2>
+          <div className="bg-brand-50/40 border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-200">
+              <h2 className="text-sm font-bold text-gray-700 mb-1">Pantry Staples</h2>
               <p className="text-xs text-gray-500">
                 These are assumed to be on hand. Add them to your cart if you need them.
               </p>
@@ -433,7 +459,7 @@ function GroceryContent() {
               {pantryItems.map((item) => (
                 <span
                   key={item}
-                  className="inline-flex items-center text-xs bg-white/5 border border-white/8 text-gray-400 rounded-full px-3 py-1"
+                  className="inline-flex items-center text-xs bg-white border border-gray-200 text-gray-600 rounded-full px-3 py-1"
                 >
                   {displayName(item)}
                 </span>
@@ -442,7 +468,7 @@ function GroceryContent() {
           </div>
         )}
 
-        <p className="mt-4 text-xs text-gray-600 text-center">
+        <p className="mt-4 text-xs text-gray-400 text-center">
           Prices are per-package retail estimates. Actual prices vary by store and brand.
           {stateName && ` Regional multiplier applied for ${stateName}.`}
         </p>
@@ -451,7 +477,7 @@ function GroceryContent() {
         <div className="mt-10 flex justify-center">
           <button
             onClick={() => router.push(`/plan?${buildPlanParams().toString()}`)}
-            className="bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20"
+            className="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20"
           >
             Back to meal plan
           </button>
@@ -465,7 +491,7 @@ export default function GroceryPage() {
   return (
     <Suspense fallback={
       <div className="flex-1 min-h-[60vh] flex items-center justify-center">
-        <div className="text-gray-400 text-sm">Building your grocery list…</div>
+        <div className="text-gray-600 text-sm">Building your grocery list…</div>
       </div>
     }>
       <GroceryContent />

@@ -42,7 +42,14 @@
       "Bash(npx supabase *)",
       "Bash(awk *)",
       "Bash(npx -y tsx --tsconfig tsconfig.json /tmp/test-multiweek.ts)",
-      "Bash(echo \"tsc exit: $?\")"
+      "Bash(echo \"tsc exit: $?\")",
+      "Bash(cat > *)",
+      "Bash(python3 -)",
+      "Bash(grep -E '^\\\\$[0-9]+/wk' /Users/tshibles/.claude/projects/-Users-tshibles-macro-planner/a2d980d9-1926-4817-9501-68c31459efdc/tool-results/bbaxnowb4.txt)",
+      "Bash(grep -E '^\\\\$')"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }

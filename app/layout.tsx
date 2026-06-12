@@ -15,9 +15,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="antialiased bg-gray-950 text-white">
-          <PostHogProvider>{children}</PostHogProvider>
-        </body>
+      {/* Background comes from globals.css (white washed with forest-green light). */}
+      <body className="antialiased text-gray-900">
+        <PostHogProvider>{children}</PostHogProvider>
+      </body>
     </html>
   );
 }

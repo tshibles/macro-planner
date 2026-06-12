@@ -8,12 +8,17 @@ import { US_STATES } from "@/app/data/stateMultipliers";
 import { checkGoalRate, deriveGoal } from "@/app/lib/tdee";
 import { dietaryOptions, activityLevels, genderOptions } from "@/app/data/formOptions";
 import { PageFooter, PageHeader } from "@/app/components/PageHeader";
+import { GlowBackdrop } from "@/app/components/Decor";
 
 // "trial" — user chose the free trial (or has no active subscription yet);
 // submitting consumes the trial. "paid" — an active subscriptions row exists
 // (they paid before onboarding, or are re-onboarding mid-subscription), so
 // submitting just generates against their subscription tier.
-type Mode = "loading" | "trial" | "paid";
+// "paymentPending" — the user just returned from Stripe (?paid=true) but the
+// webhook hasn't written the subscription row yet. We must NOT fall back to
+// the trial here: that would silently consume a paying customer's free trial
+// and build them a 7-day plan they didn't buy.
+type Mode = "loading" | "trial" | "paid" | "paymentPending";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -65,6 +70,12 @@ export default function OnboardingPage() {
           setTimeout(check, 1500);
           return;
         }
+        if (paid) {
+          // They just paid but the webhook hasn't landed. Never downgrade a
+          // paying customer to the trial — surface the pending state instead.
+          setMode("paymentPending");
+          return;
+        }
         const trial = await fetch("/api/free-trial/status").then((r) => r.json());
         if (!active) return;
         if (trial.used) {
@@ -74,7 +85,7 @@ export default function OnboardingPage() {
         }
         setMode("trial");
       } catch {
-        if (active) setMode("trial");
+        if (active) setMode(paid ? "paymentPending" : "trial");
       }
     }
 
@@ -118,7 +129,7 @@ export default function OnboardingPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (mode === "loading") return;
+    if (mode === "loading" || mode === "paymentPending") return;
     setLoading(true);
 
     const tierId = mode === "paid" ? subTier : "free";
@@ -181,49 +192,67 @@ export default function OnboardingPage() {
   }
 
   const inputClass =
-    "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition";
+    "w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition";
   const smallInputClass =
-    "w-full bg-white/5 border border-white/10 rounded-xl pl-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm";
+    "w-full bg-white border border-gray-200 rounded-xl pl-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm";
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="relative overflow-hidden min-h-screen flex flex-col">
+      <GlowBackdrop variant="subtle" />
       <PageHeader />
 
       <section className="flex-1 flex flex-col items-center px-4 py-12">
         <div className="mb-8 text-center max-w-xl">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-3">
             Let&apos;s build your{" "}
-            <span className="bg-gradient-to-r from-brand-400 to-emerald-300 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-brand-700 to-emerald-600 bg-clip-text text-transparent">
               meal plan
             </span>
           </h1>
-          <p className="text-gray-400">
+          <p className="text-gray-600">
             Tell us your budget, goal, and dietary needs — we&apos;ll generate a
             full plan with recipes and a grocery list.
           </p>
           {mode === "paid" && (
-            <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-brand-400 bg-brand-500/10 border border-brand-500/20 rounded-full px-3 py-1">
+            <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-brand-700 bg-brand-50 border border-brand-300 rounded-full px-3 py-1">
               {getTierById(subTier).label} plan active — {getTierById(subTier).days} days of meals
             </p>
           )}
           {mode === "trial" && (
-            <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-gray-400 bg-white/5 border border-white/10 rounded-full px-3 py-1">
+            <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-gray-600 bg-white border border-gray-200 rounded-full px-3 py-1">
               Free trial — your first 7-day plan is on us
             </p>
+          )}
+          {mode === "paymentPending" && (
+            <div className="mt-4 max-w-md mx-auto text-left text-sm text-amber-800/90 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3">
+              <p className="font-semibold text-amber-700 mb-1">Payment received — confirming with Stripe…</p>
+              <p className="text-xs leading-relaxed">
+                Your card was charged but our confirmation hasn&apos;t arrived yet (this
+                usually takes a few seconds). Your full plan is safe — we won&apos;t start
+                a trial instead.
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="mt-2 text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-800"
+              >
+                Check again
+              </button>
+            </div>
           )}
         </div>
 
         {/* Form Card */}
-        <div className="w-full max-w-lg bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl backdrop-blur-sm">
+        <div className="w-full max-w-lg bg-white border border-gray-200 rounded-2xl p-8 shadow-xl backdrop-blur-sm">
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             {/* Budget + People */}
             <div className="flex gap-3">
               <div className="flex flex-col gap-1.5 flex-1">
-                <label htmlFor="budget" className="text-sm font-medium text-gray-300">
+                <label htmlFor="budget" className="text-sm font-medium text-gray-700">
                   Weekly grocery budget
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-600 font-medium">$</span>
                   <input
                     id="budget"
                     type="number"
@@ -238,7 +267,7 @@ export default function OnboardingPage() {
                 </div>
               </div>
               <div className="flex flex-col gap-1.5 w-28">
-                <label htmlFor="people" className="text-sm font-medium text-gray-300">
+                <label htmlFor="people" className="text-sm font-medium text-gray-700">
                   # of people
                 </label>
                 <input
@@ -257,9 +286,9 @@ export default function OnboardingPage() {
 
             {/* Goal Target */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-gray-300">
+              <label className="text-sm font-medium text-gray-700">
                 Your goal
-                <span className="ml-2 text-xs text-gray-600 font-normal">
+                <span className="ml-2 text-xs text-gray-400 font-normal">
                   uses your weight from body metrics below
                 </span>
               </label>
@@ -307,11 +336,11 @@ export default function OnboardingPage() {
                 rateCheck.safe ? (
                   <p className="text-xs text-gray-500">
                     {rateCheck.direction === "loss" ? "Losing" : "Gaining"}{" "}
-                    {Math.abs(targetWeightNum - currentWeightNum).toFixed(0)} lbs over {timeframeNum} weeks
+                    {Math.abs(targetWeightNum - currentWeightNum).toFixed(0)} lbs over {timeframeNum} week{timeframeNum === 1 ? "" : "s"}
                     (~{rateCheck.ratePerWeek.toFixed(1)} lb/week) — a healthy, sustainable pace.
                   </p>
                 ) : (
-                  <div className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                  <div className="text-xs text-amber-600/90 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
                     <p>
                       {rateCheck.direction === "loss" ? "Losing" : "Gaining"}{" "}
                       {Math.abs(targetWeightNum - currentWeightNum).toFixed(0)} lbs in {timeframeNum} week
@@ -330,7 +359,7 @@ export default function OnboardingPage() {
 
             {/* Dietary Restrictions */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-gray-300">
+              <label className="text-sm font-medium text-gray-700">
                 Dietary restrictions
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -341,8 +370,8 @@ export default function OnboardingPage() {
                       key={opt.value}
                       className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 cursor-pointer transition-all ${
                         checked
-                          ? "border-brand-500/60 bg-brand-500/10"
-                          : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                          ? "border-brand-500/60 bg-brand-50"
+                          : "border-gray-200 bg-brand-50/40 hover:border-brand-300"
                       }`}
                     >
                       <div
@@ -351,7 +380,7 @@ export default function OnboardingPage() {
                         }`}
                       >
                         {checked && (
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 text-white">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 text-gray-900">
                             <path d="M10.28 2.28a.75.75 0 0 0-1.06 0L4.5 7 2.78 5.28a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l5.25-5.25a.75.75 0 0 0 0-1.06Z" />
                           </svg>
                         )}
@@ -371,9 +400,9 @@ export default function OnboardingPage() {
 
             {/* Allergies */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="allergies" className="text-sm font-medium text-gray-300">
+              <label htmlFor="allergies" className="text-sm font-medium text-gray-700">
                 Allergies
-                <span className="ml-2 text-xs text-gray-600 font-normal">comma-separated, e.g. eggs, peanuts</span>
+                <span className="ml-2 text-xs text-gray-400 font-normal">comma-separated, e.g. eggs, peanuts</span>
               </label>
               <input
                 id="allergies"
@@ -386,10 +415,10 @@ export default function OnboardingPage() {
             </div>
 
             {/* Body Metrics (optional) */}
-            <div className="flex flex-col gap-3 border border-white/8 rounded-xl p-4 bg-white/[0.02]">
+            <div className="flex flex-col gap-3 border border-gray-200 rounded-xl p-4 bg-brand-50/40">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-gray-300">Body metrics</p>
-                <span className="text-xs text-gray-600 bg-white/5 rounded-full px-2 py-0.5">
+                <p className="text-sm font-medium text-gray-700">Body metrics</p>
+                <span className="text-xs text-gray-400 bg-white rounded-full px-2 py-0.5">
                   Optional — enables calorie targeting
                 </span>
               </div>
@@ -458,10 +487,10 @@ export default function OnboardingPage() {
                     id="gender"
                     value={gender}
                     onChange={(e) => setGender(e.target.value)}
-                    className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
                   >
                     {genderOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value} className="bg-gray-900">
+                      <option key={opt.value} value={opt.value} className="bg-white">
                         {opt.label}
                       </option>
                     ))}
@@ -478,7 +507,7 @@ export default function OnboardingPage() {
                     value={age}
                     onChange={(e) => setAge(e.target.value)}
                     placeholder="20"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
                   />
                 </div>
               </div>
@@ -490,10 +519,10 @@ export default function OnboardingPage() {
                   id="activityLevel"
                   value={activityLevel}
                   onChange={(e) => setActivityLevel(e.target.value)}
-                  className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
                 >
                   {activityLevels.map((opt) => (
-                    <option key={opt.value} value={opt.value} className="bg-gray-900">
+                    <option key={opt.value} value={opt.value} className="bg-white">
                       {opt.label}
                     </option>
                   ))}
@@ -503,17 +532,17 @@ export default function OnboardingPage() {
               {/* State */}
               <div className="flex flex-col gap-1">
                 <label htmlFor="state" className="text-xs text-gray-500">
-                  State <span className="text-gray-600">(for grocery price estimates)</span>
+                  State <span className="text-gray-400">(for grocery price estimates)</span>
                 </label>
                 <select
                   id="state"
                   value={state}
                   onChange={(e) => setState(e.target.value)}
-                  className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm"
                 >
-                  <option value="" className="bg-gray-900">Select state…</option>
+                  <option value="" className="bg-white">Select state…</option>
                   {US_STATES.map((s) => (
-                    <option key={s.value} value={s.value} className="bg-gray-900">
+                    <option key={s.value} value={s.value} className="bg-white">
                       {s.label}
                     </option>
                   ))}
@@ -524,16 +553,20 @@ export default function OnboardingPage() {
             {/* CTA */}
             <button
               type="submit"
-              disabled={loading || mode === "loading"}
-              className="mt-2 w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors duration-150 shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
+              disabled={loading || mode === "loading" || mode === "paymentPending"}
+              className="mt-2 w-full bg-brand-600 hover:bg-brand-700 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors duration-150 shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
             >
-              {loading || mode === "loading" ? (
+              {loading || mode === "loading" || mode === "paymentPending" ? (
                 <>
                   <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                   </svg>
-                  {mode === "loading" ? "Checking your plan…" : "Building your plan…"}
+                  {mode === "loading"
+                    ? "Checking your plan…"
+                    : mode === "paymentPending"
+                      ? "Waiting for payment confirmation…"
+                      : "Building your plan…"}
                 </>
               ) : (
                 <>

@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { planTiers } from "@/app/data/plans";
 import { PageFooter, PageHeader } from "@/app/components/PageHeader";
+import { GlowBackdrop } from "@/app/components/Decor";
 
 const PAID_TIERS = planTiers.filter((t) => t.priceInCents > 0);
 
@@ -56,25 +57,26 @@ function CheckoutContent() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="relative overflow-hidden min-h-screen flex flex-col">
+      <GlowBackdrop variant="subtle" />
       <PageHeader />
 
       <section className="flex-1 flex flex-col items-center justify-center px-4 py-16">
         <div className="mb-10 text-center max-w-xl">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-3">
             Complete your{" "}
-            <span className="bg-gradient-to-r from-brand-400 to-emerald-300 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-brand-700 to-emerald-600 bg-clip-text text-transparent">
               purchase
             </span>
           </h1>
-          <p className="text-gray-400">
+          <p className="text-gray-600">
             One-time payment, full access for the length of your plan.
           </p>
         </div>
 
         <div className="w-full max-w-md space-y-3">
           {canceled && (
-            <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+            <p className="text-xs text-amber-600/80 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
               Payment canceled — you haven&apos;t been charged. Pick a plan to try again.
             </p>
           )}
@@ -84,8 +86,8 @@ function CheckoutContent() {
               key={t.id}
               className={`relative flex items-center justify-between gap-3 rounded-xl px-5 py-4 border transition-all cursor-pointer ${
                 tierId === t.id
-                  ? "border-brand-500/60 bg-brand-500/10"
-                  : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                  ? "border-brand-500/60 bg-brand-50"
+                  : "border-gray-200 bg-brand-50/40 hover:border-brand-300"
               }`}
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -96,9 +98,9 @@ function CheckoutContent() {
                 />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">{t.label}</span>
+                    <span className="text-sm font-semibold text-gray-900">{t.label}</span>
                     {t.badge && (
-                      <span className="text-xs bg-brand-500/20 text-brand-400 border border-brand-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                      <span className="text-xs bg-brand-100 text-brand-700 border border-brand-300 rounded-full px-1.5 py-0.5 leading-none">
                         {t.badge}
                       </span>
                     )}
@@ -121,7 +123,7 @@ function CheckoutContent() {
           ))}
 
           {error && (
-            <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+            <p className="text-red-600 text-sm bg-red-50 border border-red-300 rounded-lg px-3 py-2">
               {error}
             </p>
           )}
@@ -129,7 +131,7 @@ function CheckoutContent() {
           <button
             onClick={handlePay}
             disabled={loading}
-            className="mt-2 w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
+            className="mt-2 w-full bg-brand-600 hover:bg-brand-700 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
@@ -144,7 +146,7 @@ function CheckoutContent() {
             )}
           </button>
 
-          <p className="text-xs text-gray-600 flex items-center justify-center gap-1.5 pt-1">
+          <p className="text-xs text-gray-400 flex items-center justify-center gap-1.5 pt-1">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
               <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
             </svg>

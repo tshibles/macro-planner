@@ -457,6 +457,10 @@ function buildTargetedCart(
 
 const MEAL_SLOTS: Meal["type"][] = ["breakfast", "lunch", "dinner", "snack"];
 
+// Weekly per-person budget at which tier-3 premium meals (salmon, steak,
+// shrimp) become worth provisioning for. Matches the catalog's tier design.
+const PREMIUM_TIER_MIN_BUDGET = 100;
+
 function collectMissingProducts(meal: Meal, cartEntries: CartEntry[]): Array<{ key: string; def: PurchasableUnitDef }> {
   const missing: Array<{ key: string; def: PurchasableUnitDef }> = [];
   for (const ing of meal.ingredients) {
@@ -488,8 +492,13 @@ function expandCartForMealVariety(
   // One expensive meal (e.g. one needing a $26 protein-powder tub) must not eat
   // the whole variety budget — skip meals whose missing ingredients cost more.
   const perMealCap = Math.max(8, weeklyBudget * 0.15);
+  // Tier-3 premium meals (salmon, steak, shrimp) only join the variety
+  // expansion when the budget can carry them. Below that, their ingredient
+  // unlocks ($8-9/lb proteins) eat the variety budget and starve the
+  // cheap-staple pools that tight budgets depend on to hit calorie targets.
+  const tierAllowed = (m: Meal) => m.budgetTier < 3 || weeklyBudget >= PREMIUM_TIER_MIN_BUDGET;
   const baseFilter = (m: Meal, type: Meal["type"]) =>
-    m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
+    m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id) && tierAllowed(m);
 
   // With a protein target, spend the variety budget where it buys the most
   // cookable meals: cheapest missing-ingredient set first, so shared staples
@@ -953,26 +962,48 @@ function finalizeWeek(
   let scale = 1;
   let fullCost = 0;
   let result: { days: DayMeals[]; built: BuiltWeekCart; capped: boolean } | null = null;
+  let overScale: number | null = null; // smallest scale known to exceed the budget
 
-  for (let iter = 0; iter < 12; iter++) {
+  const buildAt = (s: number): { days: DayMeals[]; built: BuiltWeekCart; capped: boolean } => {
     const days = makeWeek();
     const capped = calorieTarget
-      ? scaleWeekToCalorieTarget(days, calorieTarget * scale, dailyProteinTarget ? dailyProteinTarget * scale : null)
+      ? scaleWeekToCalorieTarget(days, calorieTarget * s, dailyProteinTarget ? dailyProteinTarget * s : null)
       : false;
     const built = buildWeekCart(days, derivePrepSessions(days, weekIndex), stateMultiplier);
-    result = { days, built, capped };
-    if (iter === 0) fullCost = built.summary.totalCost;
-    if (built.summary.totalCost <= weeklyBudget + 0.005) break;
+    return { days, built, capped };
+  };
+
+  for (let iter = 0; iter < 12; iter++) {
+    result = buildAt(scale);
+    const cost = result.built.summary.totalCost;
+    if (iter === 0) fullCost = cost;
+    if (cost <= weeklyBudget + 0.005) break;
+    overScale = scale;
     if (!calorieTarget || scale <= MIN_PORTION_SCALE) break; // can't shrink further — reported honestly
     const next = Math.max(
       MIN_PORTION_SCALE,
-      Math.min(scale * (weeklyBudget / built.summary.totalCost) * 0.98, scale - 0.01)
+      Math.min(scale * (weeklyBudget / cost) * 0.98, scale - 0.01)
     );
     if (next >= scale) break;
     scale = next;
     console.log(
-      `[generatePlan] ${label}: groceries $${built.summary.totalCost} exceed $${weeklyBudget} budget — retrying at ${Math.round(scale * 100)}% portions`
+      `[generatePlan] ${label}: groceries $${cost} exceed $${weeklyBudget} budget — retrying at ${Math.round(scale * 100)}% portions`
     );
+  }
+
+  // Cart cost is a step function of scale (whole retail packages), so the
+  // multiplicative shrink above can overshoot past a package cliff and strand
+  // budget. Bisect between the fitting scale and the smallest over-budget
+  // scale to serve the largest portions the budget actually covers.
+  if (calorieTarget && overScale !== null && result!.built.summary.totalCost <= weeklyBudget + 0.005) {
+    let lo = scale, hi = overScale;
+    for (let i = 0; i < 7 && hi - lo > 0.005; i++) {
+      const mid = (lo + hi) / 2;
+      const r = buildAt(mid);
+      if (r.built.summary.totalCost <= weeklyBudget + 0.005) { lo = mid; scale = mid; result = r; }
+      else hi = mid;
+    }
+    console.log(`[generatePlan] ${label}: portion bisection settled at ${Math.round(scale * 100)}% — $${result!.built.summary.totalCost}`);
   }
 
   const { days, built, capped } = result!;
@@ -1108,7 +1139,8 @@ function composeWeekPrep(
   dailyCalTarget: number | null,
   goal: string,
   rng: () => number,
-  weekLabel: string
+  weekLabel: string,
+  costWeight: number = 0
 ): Record<MealKey, Meal>[] {
   // Split each cart-eligible pool by prep type, preserving the salt-shuffled
   // order. Either side falls back to the full pool when empty: a missing
@@ -1135,6 +1167,61 @@ function composeWeekPrep(
   const usedThisWeek: Record<MealKey, Map<string, number>> =
     { breakfast: new Map(), lunch: new Map(), dinner: new Map(), snack: new Map() };
 
+  // ── Cost pressure ─────────────────────────────────────────────────────────
+  // costWeight > 0 means the budget-fit loop found full portions over budget:
+  // penalize each candidate by its cost density — dollars per calorie plus
+  // dollars per gram of protein (both scale-invariant, so they survive portion
+  // scaling to the calorie target) — in ratio-deviation-comparable units.
+  // Cheap calorie/protein-dense staples (oats, rice, eggs, ground turkey,
+  // peanut butter, beans) score ~0.35; premium meals score ~1.1+.
+  const costPenalty = (m: Meal): number =>
+    costWeight === 0
+      ? 0
+      : costWeight * ((m.cost / Math.max(m.calories, 1)) * 100 + m.cost / Math.max(m.protein, 1));
+  // Per-serving cost is blind to package quantization: a meal picked for one
+  // day whose ingredients nothing else uses buys whole retail packages for a
+  // single serving. Under cost pressure, penalize each purchasable product a
+  // candidate would newly add to the week, so picks gravitate toward meals
+  // sharing the packages the week already buys.
+  const weekProducts = new Set<string>();
+  const addWeekProducts = (m: Meal): void => {
+    for (const ing of m.ingredients) {
+      const key = normalizeKey(ing.item);
+      if (isPantryStaple(key)) continue;
+      const def = lookupPurchasable(key);
+      if (def) weekProducts.add(productId(def.price, def.unit));
+    }
+  };
+  const newProductCount = (m: Meal): number => {
+    if (costWeight === 0) return 0;
+    const seen = new Set<string>();
+    for (const ing of m.ingredients) {
+      const key = normalizeKey(ing.item);
+      if (isPantryStaple(key)) continue;
+      const def = lookupPurchasable(key);
+      if (!def) continue;
+      const id = productId(def.price, def.unit);
+      if (!weekProducts.has(id)) seen.add(id);
+    }
+    return seen.size;
+  };
+  // Deviations beyond ~8% of the target ratio land the day outside the
+  // protein band — escalate sharply there so variety penalties only arbitrate
+  // among in-band segment picks and can never buy an out-of-band one. Under
+  // cost pressure the escalation steepens so cheapness can't buy an
+  // out-of-band day either — the protein/calorie bands outrank the budget.
+  const shapeDev = (dev: number): number => {
+    const band = (targetRatio as number) * 0.08;
+    return dev + Math.max(0, dev - band) * (10 + costWeight * 48);
+  };
+  // Cost penalties dwarf the base SALT_JITTER, which would collapse every
+  // salt onto the identical cheapest argmin — breaking the regenerate
+  // contract (different salts → meaningfully different plans). Grow the
+  // jitter with the cost pressure so salts still arbitrate among
+  // similarly-cheap meals; out-of-band picks stay blocked by the escalated
+  // shapeDev, and the budget-fit loop keeps whichever attempt delivers most.
+  const jitterAmp = SALT_JITTER * (1 + costWeight * 15);
+
   const scoreOf = (
     m: Meal, slot: MealKey,
     fixedCal: number, fixedProt: number, expCal: number, expProt: number,
@@ -1143,13 +1230,14 @@ function composeWeekPrep(
   ): number => {
     const projCals = fixedCal + m.calories + expCal;
     const ratio = ((fixedProt + m.protein + expProt) * 4) / Math.max(projCals, 1);
+    const dev = Math.abs(ratio - (targetRatio as number));
     const reuse = usedThisWeek[slot].get(m.id) ?? 0;
     return (
-      Math.abs(ratio - (targetRatio as number)) +
+      (costWeight > 0 ? shapeDev(dev) + costPenalty(m) + costWeight * 0.06 * newProductCount(m) : dev) +
       reuse * INTRA_WEEK_REUSE_PENALTY +
       (reuse === 0 && usedAcrossWeeks.has(m.id) ? crossWeekPenalty : 0) +
       (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0) +
-      rng() * SALT_JITTER * jitterScale
+      rng() * jitterAmp * jitterScale
     );
   };
 
@@ -1163,13 +1251,6 @@ function composeWeekPrep(
     const reuse = usedThisWeek[slot].get(m.id) ?? 0;
     return reuse * INTRA_WEEK_REUSE_PENALTY +
       (reuse === 0 && usedAcrossWeeks.has(m.id) ? BATCH_CROSS_WEEK_PENALTY : 0);
-  };
-  // Deviations beyond ~8% of the target ratio land the day outside the
-  // protein band — escalate sharply there so variety penalties only arbitrate
-  // among in-band segment picks and can never buy an out-of-band one.
-  const shapeDev = (dev: number): number => {
-    const band = (targetRatio as number) * 0.08;
-    return dev + Math.max(0, dev - band) * 10;
   };
   // Best achievable day deviation for a fixed (dinner, lunch[, snack]) set:
   // search the real breakfast pool for the corrective pick that completes the
@@ -1201,7 +1282,9 @@ function composeWeekPrep(
           const score =
             shapeDev(bestDayDev(dM.calories + lM.calories + snackExp.cal, dM.protein + lM.protein + snackExp.prot)) +
             batchPenalty(dM, "dinner") + batchPenalty(lM, "lunch") +
-            rng() * SALT_JITTER;
+            costPenalty(dM) + costPenalty(lM) +
+            costWeight * 0.02 * (newProductCount(dM) + newProductCount(lM)) +
+            rng() * jitterAmp;
           if (score < bestScore - 1e-9) { bestD = dM; bestL = lM; bestScore = score; }
         }
       }
@@ -1213,20 +1296,24 @@ function composeWeekPrep(
           const score =
             shapeDev(bestDayDev(bestD.calories + bestL.calories + sM.calories, bestD.protein + bestL.protein + sM.protein)) +
             batchPenalty(sM, "snack") +
-            rng() * SALT_JITTER * 0.5;
+            costPenalty(sM) +
+            costWeight * 0.02 * newProductCount(sM) +
+            rng() * jitterAmp * 0.5;
           if (score < bestScore - 1e-9) { bestS = sM; bestScore = score; }
         }
         picks.snack = bestS;
       }
     } else {
       // No protein target: best goal-score batch recipe not yet used this
-      // week or month (pool order is salt-shuffled, breaking ties).
+      // week or month (pool order is salt-shuffled, breaking ties). Under
+      // cost pressure the goal score trades off against cost density.
+      const legacyScore = (m: Meal) => scoreMeal(m, goal) - costPenalty(m) * 150;
       for (const slot of batchSlots) {
         const pool = prep[slot].batch;
         const unused = pool.filter((m) => !usedThisWeek[slot].has(m.id) && !usedAcrossWeeks.has(m.id));
         const candidates = unused.length ? unused : pool.filter((m) => !usedThisWeek[slot].has(m.id));
         const ranked = (candidates.length ? candidates : pool);
-        picks[slot] = ranked.reduce((a, b) => (scoreMeal(b, goal) > scoreMeal(a, goal) ? b : a));
+        picks[slot] = ranked.reduce((a, b) => (legacyScore(b) > legacyScore(a) ? b : a));
       }
     }
     for (const slot of Object.keys(picks) as MealKey[]) {
@@ -1234,6 +1321,7 @@ function composeWeekPrep(
       // Count one prior serving per covered day so the other segment (and
       // per-day fresh picks) see an escalating reuse penalty.
       usedThisWeek[slot].set(m.id, (usedThisWeek[slot].get(m.id) ?? 0) + seg.positions.length);
+      addWeekProducts(m);
       console.log(`[generatePlan] ${weekLabel} ${seg.sessionDay}-prep ${slot}: "${m.name}" (id=${m.id}) × ${seg.positions.length} days`);
     }
     return picks;
@@ -1273,13 +1361,18 @@ function composeWeekPrep(
         }
         dayPicks[slot] = best;
         usedThisWeek[slot].set(best.id, (usedThisWeek[slot].get(best.id) ?? 0) + 1);
+        addWeekProducts(best);
         fixedCal += best.calories;
         fixedProt += best.protein;
         console.log(`[generatePlan] ${weekLabel} ${DAY_NAMES[d]} ${slot}: fresh pick → "${best.name}" (id=${best.id})`);
       }
     } else {
       for (const slot of freeSlots) {
-        const pool = prep[slot].fresh;
+        // Under cost pressure cycle the cheapest-density meals first so the
+        // legacy path still converges toward an affordable week.
+        const pool = costWeight > 0
+          ? [...prep[slot].fresh].sort((a, b) => costPenalty(a) - costPenalty(b))
+          : prep[slot].fresh;
         const meal = pool[legacyIdx[slot] % pool.length];
         legacyIdx[slot]++;
         dayPicks[slot] = meal;
@@ -1290,6 +1383,79 @@ function composeWeekPrep(
     days.push(dayPicks as Record<MealKey, Meal>);
   }
   return days;
+}
+
+// ── Budget-Fit Meal Selection ─────────────────────────────────────────────────
+// Composes the week at increasing levels of cost pressure until its REAL
+// requirement-driven cart (full portions, scaled to the calorie target) fits
+// the weekly budget. Attempt 0 is the unconstrained selection — high budgets
+// never see cost pressure and keep full variety. Cost pressure steers the
+// selector toward meals built on cheap calorie/protein-dense staples (rice,
+// oats, eggs, ground turkey, peanut butter, beans) so a tight budget hits the
+// calorie target through cheaper meals FIRST; only when even the cheapest
+// in-band composition exceeds the budget does the caller fall back to portion
+// reduction (finalizeWeek), reported honestly.
+
+const COST_PRESSURE_WEIGHTS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5];
+
+interface WeekSelection {
+  fin: FinalizedWeek;
+  costPressure: number; // cost weight that produced the picks (0 = unconstrained)
+}
+
+function pickWeekWithinBudget(
+  pools: Record<MealKey, Meal[]>,
+  weekLength: number,
+  usedAcrossWeeks: Set<string>,
+  targetRatio: number | null,
+  calorieTarget: number | null,
+  dailyProteinTarget: number | null,
+  goal: string,
+  rng: () => number,
+  weekLabel: string,
+  weeklyBudget: number,
+  stateMultiplier: number,
+  weekIndex: number,
+  assemble: (picks: Record<MealKey, Meal>[]) => DayMeals[]
+): WeekSelection {
+  let best: WeekSelection | null = null;
+  for (const base of COST_PRESSURE_WEIGHTS) {
+    // Salt-perturbed pressure: on a fixed ladder, every salt landing on the
+    // same rung converges to the identical cheapest argmin, killing
+    // regenerate variety for budget-pinned users. Perturbing each rung by the
+    // salt-seeded rng samples a slightly different cost/variety trade-off per
+    // salt. Attempt 0 stays exactly 0 (and draws nothing) so unconstrained
+    // budgets reproduce the pre-pressure selection untouched.
+    const w = base === 0 ? 0 : +(base * (0.7 + 0.6 * rng())).toFixed(3);
+    const picks = composeWeekPrep(pools, weekLength, usedAcrossWeeks, targetRatio, calorieTarget, goal, rng, weekLabel, w);
+    const fin = finalizeWeek(
+      () => assemble(picks), weekIndex, calorieTarget, dailyProteinTarget,
+      weeklyBudget, stateMultiplier, `${weekLabel}${w > 0 ? ` @cost-pressure ${w}` : ""}`);
+    const attempt: WeekSelection = { fin, costPressure: w };
+    // Full portions fit the budget — done. Attempt 0 fitting means high-budget
+    // users never see cost pressure and keep their unconstrained variety.
+    if (fin.scale >= 0.995 && fin.cart.totalCost <= weeklyBudget + 0.005) {
+      if (w > 0) console.log(`[generatePlan] ${weekLabel}: cost pressure ${w} fits full portions at $${fin.cart.totalCost}`);
+      return attempt;
+    }
+    // Otherwise keep the attempt that DELIVERS the most: highest fitted
+    // portion scale (package cliffs differ per composition, so the cheapest
+    // full-portion cart isn't always the best fit), then lower full cost.
+    if (!best ||
+        fin.scale > best.fin.scale + 0.002 ||
+        (Math.abs(fin.scale - best.fin.scale) <= 0.002 && fin.fullCost < best.fin.fullCost - 0.005)) {
+      best = attempt;
+    }
+    // Without a calorie target portions aren't scaled, so the unconstrained
+    // selection already reflects displayed costs — keep current behavior.
+    if (!calorieTarget) break;
+    console.log(`[generatePlan] ${weekLabel}: cost pressure ${w} → full $${fin.fullCost}, fits at ${Math.round(fin.scale * 100)}% portions`);
+  }
+  console.log(
+    `[generatePlan] ${weekLabel}: best composition (cost pressure ${best!.costPressure}) serves ` +
+    `${Math.round(best!.fin.scale * 100)}% portions for $${best!.fin.cart.totalCost}`
+  );
+  return best!;
 }
 
 // ── Prep Session Derivation ───────────────────────────────────────────────────
@@ -1473,26 +1639,23 @@ export function generatePlan(
     budgetCapMessage = budgetCapMessage ? `${budgetCapMessage} ${dietMsg}` : dietMsg;
   }
 
-  // ── Step 6: Compose week 1 around its two prep sessions ─────────────────────
-  // Sunday prep covers Monday–Wednesday, Wednesday prep covers Thursday–
-  // Saturday; batch lunches/dinners (and a batch snack when cookable) repeat
-  // across their session's days. Breakfasts and Sunday are fresh.
   const week1Length = Math.min(totalDays, 7);
-  const week1Picks = composeWeekPrep(
-    { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
-    week1Length, new Set(), targetProteinRatio, calorieTarget ?? null, goal, rng, "week 1");
 
   // Resolve user swaps once (they replace the deterministic pick for a
-  // (day, slot) and are valid only against this salt). The week factory below
-  // re-applies them on every budget-fit pass.
-  const resolvedSwaps: Array<{ idx: number; slot: MealKey; meal: Meal }> = [];
+  // (day, slot) and are valid only against this salt). Each swap belongs to
+  // the week its full dayIndex falls in — a swap made while viewing week 3
+  // edits week 3. The week factory below re-applies them on every budget-fit
+  // pass. Legacy stored swaps (dayIndex already reduced mod 7) resolve to
+  // week 0, exactly as before.
+  const resolvedSwaps: Array<{ week: number; idx: number; slot: MealKey; meal: Meal }> = [];
   for (const sw of swaps) {
+    if (sw.dayIndex < 0 || sw.dayIndex >= totalDays) continue;
+    const week = Math.floor(sw.dayIndex / 7);
     const idx = sw.dayIndex % 7;
-    if (idx >= week1Length) continue;
     const replacement = meals.find((m) => m.id === sw.mealId);
     if (!replacement || replacement.type !== sw.slot) continue;
-    resolvedSwaps.push({ idx, slot: sw.slot, meal: replacement });
-    console.log(`[generatePlan] swap applied — day ${idx} ${sw.slot} → "${replacement.name}" (id=${replacement.id})`);
+    resolvedSwaps.push({ week, idx, slot: sw.slot, meal: replacement });
+    console.log(`[generatePlan] swap applied — week ${week + 1} day ${idx} ${sw.slot} → "${replacement.name}" (id=${replacement.id})`);
   }
 
   // Assembles a fresh, unscaled week from picks. finalizeWeek calls this each
@@ -1517,19 +1680,30 @@ export function generatePlan(
       recomputeDayTotals(day);
       daysOut.push(day);
     }
-    if (weekIndex === 0) {
-      for (const sw of resolvedSwaps) {
-        daysOut[sw.idx][sw.slot] = sw.meal;
-        recomputeDayTotals(daysOut[sw.idx]);
-      }
+    for (const sw of resolvedSwaps) {
+      if (sw.week !== weekIndex || sw.idx >= weekLength) continue;
+      daysOut[sw.idx][sw.slot] = sw.meal;
+      recomputeDayTotals(daysOut[sw.idx]);
     }
     return daysOut;
   };
 
-  // ── Step 8: Finalize week 1 — scale portions, build its REAL cart, fit budget ─
-  const fin1 = finalizeWeek(
-    () => assembleWeek(week1Picks, 0, week1Length),
-    0, calorieTarget ?? null, dailyProteinTarget, perPersonBudget, stateMultiplier, "week 1");
+  // ── Step 6: Compose week 1 around its two prep sessions ─────────────────────
+  // Sunday prep covers Monday–Wednesday, Wednesday prep covers Thursday–
+  // Saturday; batch lunches/dinners (and a batch snack when cookable) repeat
+  // across their session's days. Breakfasts and Sunday are fresh.
+  // Selection is budget-fit: if full portions at the calorie target exceed the
+  // budget, the week recomposes under escalating cost pressure (cheapest
+  // calorie/protein-dense meals) BEFORE any portion reduction.
+  // Each cost-pressure attempt is finalized (portions scaled, REAL cart built,
+  // budget fit) and the best-delivering attempt wins — Step 8 happens inside.
+  const sel1 = pickWeekWithinBudget(
+    { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
+    week1Length, new Set(), targetProteinRatio, calorieTarget ?? null, dailyProteinTarget,
+    goal, rng, "week 1", perPersonBudget, stateMultiplier, 0,
+    (picks) => assembleWeek(picks, 0, week1Length));
+
+  const fin1 = sel1.fin;
   const week1Days = fin1.days;
   const portionCapped = fin1.portionCapped;
 
@@ -1549,6 +1723,7 @@ export function generatePlan(
   const prepSessions: PrepSession[][] = [fin1.sessions];
   const weekScales: number[] = [fin1.scale];
   const weekFullCosts: number[] = [fin1.fullCost];
+  const weekCostPressures: number[] = [sel1.costPressure];
   const usedAcrossWeeks = new Set<string>();
   for (const day of week1Days) {
     for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
@@ -1563,13 +1738,13 @@ export function generatePlan(
     const wsPool = buildFinalPool("snack",     cartEntries, diets, allergies, dislikedSet, weekRng, usedAcrossWeeks).pool;
 
     const weekLength = Math.min(totalDays - w * 7, 7);
-    const weekPicks = composeWeekPrep(
+    const sel = pickWeekWithinBudget(
       { breakfast: wbPool, lunch: wlPool, dinner: wdPool, snack: wsPool },
-      weekLength, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, goal, weekRng, `week ${w + 1}`);
+      weekLength, usedAcrossWeeks, targetProteinRatio, calorieTarget ?? null, dailyProteinTarget,
+      goal, weekRng, `week ${w + 1}`, perPersonBudget, stateMultiplier, w,
+      (picks) => assembleWeek(picks, w, weekLength));
 
-    const fin = finalizeWeek(
-      () => assembleWeek(weekPicks, w, weekLength),
-      w, calorieTarget ?? null, dailyProteinTarget, perPersonBudget, stateMultiplier, `week ${w + 1}`);
+    const fin = sel.fin;
     for (const day of fin.days) {
       for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
     }
@@ -1578,6 +1753,7 @@ export function generatePlan(
     prepSessions.push(fin.sessions);
     weekScales.push(fin.scale);
     weekFullCosts.push(fin.fullCost);
+    weekCostPressures.push(sel.costPressure);
   }
 
   const weeks: DayMeals[][] = Array.from({ length: numWeeks }, (_, w) => days.slice(w * 7, w * 7 + 7));
@@ -1592,16 +1768,21 @@ export function generatePlan(
   const minScale = Math.min(...weekScales);
   const maxFullCost = Math.max(...weekFullCosts);
   const overBudgetWeek = weeklyCarts.findIndex((c) => c.totalCost > perPersonBudget + 0.005);
+  // Portion reduction only happens after budget-fit selection already
+  // recomposed the week around the cheapest calorie/protein-dense meals — say
+  // so, instead of implying cheaper meal choices were left on the table.
+  const costPressureUsed = weekCostPressures.some((p) => p > 0);
+  const cheapestNote = costPressureUsed ? " (already prioritizing the most budget-friendly meals)" : "";
   let budgetMsg: string | undefined;
   if (overBudgetWeek >= 0) {
     budgetMsg =
       `Week ${overBudgetWeek + 1}'s groceries cost $${weeklyCarts[overBudgetWeek].totalCost.toFixed(2)} ` +
-      `even at minimum portions — your $${perPersonBudget}/week budget can't cover your targets. ` +
+      `even at minimum portions${cheapestNote} — your $${perPersonBudget}/week budget can't cover your targets. ` +
       `Increase your budget to $${Math.ceil(maxFullCost)}/week to fully fund them.`;
   } else if (minScale < 0.995 && calorieTarget) {
     budgetMsg =
       `Full portions for your ${dailyCals.toLocaleString()} cal/day target cost up to ` +
-      `$${maxFullCost.toFixed(2)}/week in groceries. Portions were reduced to ~${Math.round(minScale * 100)}% ` +
+      `$${maxFullCost.toFixed(2)}/week in groceries${cheapestNote}. Portions were reduced to ~${Math.round(minScale * 100)}% ` +
       `(averaging ${avgDailyCalories.toLocaleString()} cal/day) so each week's groceries fit your ` +
       `$${perPersonBudget}/week budget. Increase your budget to $${Math.ceil(maxFullCost)}/week for full portions.`;
   } else if (portionCapped && calorieTarget && avgDailyCalories < Math.round(calorieTarget * 0.95)) {

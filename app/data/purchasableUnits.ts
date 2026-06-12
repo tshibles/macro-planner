@@ -236,6 +236,8 @@ export const PURCHASABLE_MAP: Record<string, PurchasableUnitDef> = {
 
   // ── Condiments & Sauces ─────────────────────────────────────────────────────
   "honey":                    { unit: "bottle (12 oz)", price: 4.99, base: "tbsp",  capacity: 24 },
+  "strawberry jam":           { unit: "jar (18 oz)",    price: 2.49, base: "tbsp",  capacity: 32 },
+  "jam":                      { unit: "jar (18 oz)",    price: 2.49, base: "tbsp",  capacity: 32 },
   "maple syrup":              { unit: "bottle (12 oz)", price: 6.99, base: "tbsp",  capacity: 24 },
   "honey mustard":            { unit: "bottle (12 oz)", price: 2.49, base: "tbsp",  capacity: 24 },
   "dijon mustard":            { unit: "jar (8 oz)",     price: 2.99, base: "tbsp",  capacity: 16 },

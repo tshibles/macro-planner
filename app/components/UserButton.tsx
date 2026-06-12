@@ -26,12 +26,12 @@ export function UserButton() {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[160px]">
+      <span className="text-xs text-gray-600 hidden sm:block truncate max-w-[160px]">
         {email}
       </span>
       <button
         onClick={handleLogout}
-        className="text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
+        className="text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-brand-300 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
       >
         Log out
       </button>

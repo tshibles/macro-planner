@@ -6,6 +6,7 @@ import { usePostHog } from "posthog-js/react";
 import { createClient } from "@/app/lib/supabase/client";
 import { resolvePostAuthDestination } from "@/app/lib/postAuth";
 import { PageFooter, PageHeader } from "@/app/components/PageHeader";
+import { GlowBackdrop } from "@/app/components/Decor";
 
 function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
   const router = useRouter();
@@ -54,7 +55,9 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
         email,
         password,
         options: {
-          emailRedirectTo: "https://www.campusmacros.com/auth/callback",
+          // Use the current origin so confirmation links work on localhost
+          // and staging, not just production.
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
       if (error) {
@@ -75,7 +78,7 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: "https://www.campusmacros.com/auth/callback",
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
     if (error) {
@@ -97,7 +100,8 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
   );
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="relative overflow-hidden min-h-screen flex flex-col">
+      <GlowBackdrop variant="subtle" />
       <PageHeader showUser={false} />
 
       <section className="flex-1 flex flex-col items-center justify-center px-4 py-16">
@@ -105,29 +109,29 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
 
           {/* ── Email-sent confirmation screen ── */}
           {emailSent ? (
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl backdrop-blur-sm text-center space-y-4">
-              <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
-                <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-xl backdrop-blur-sm text-center space-y-4">
+              <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mx-auto">
+                <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
               </div>
-              <h2 className="text-xl font-bold text-white">Check your email</h2>
-              <p className="text-sm text-gray-400 leading-relaxed">
+              <h2 className="text-xl font-bold text-gray-900">Check your email</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">
                 We sent a confirmation link to{" "}
-                <span className="text-white font-medium">{email}</span>.
+                <span className="text-gray-900 font-medium">{email}</span>.
                 Click the link to activate your account, then come back to sign in.
               </p>
               <button
                 onClick={() => switchMode("signin")}
-                className="w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20 text-sm mt-2"
+                className="w-full bg-brand-600 hover:bg-brand-700 active:bg-brand-700 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20 text-sm mt-2"
               >
                 Back to sign in
               </button>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-gray-400">
                 Didn&apos;t get it? Check your spam folder or{" "}
                 <button
                   onClick={() => setEmailSent(false)}
-                  className="text-brand-400 hover:underline"
+                  className="text-brand-700 hover:underline"
                 >
                   try again
                 </button>
@@ -137,22 +141,22 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
           ) : (
             <>
               <div className="mb-8 text-center">
-                <h1 className="text-3xl font-extrabold text-white mb-2">
+                <h1 className="text-3xl font-extrabold text-gray-900 mb-2">
                   {mode === "signin" ? "Welcome back" : "Create account"}
                 </h1>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-600 text-sm">
                   {mode === "signin"
                     ? "Sign in to access your meal plans"
                     : "Sign up to start with a free 7-day trial"}
                 </p>
               </div>
 
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl backdrop-blur-sm space-y-5">
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xl backdrop-blur-sm space-y-5">
                 {/* Google OAuth */}
                 <button
                   onClick={handleGoogle}
                   disabled={googleLoading || loading}
-                  className="w-full flex items-center justify-center gap-3 bg-white/8 hover:bg-white/12 border border-white/10 hover:border-white/20 disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors text-sm"
+                  className="w-full flex items-center justify-center gap-3 bg-gray-50 hover:bg-brand-100 border border-gray-200 hover:border-brand-300 disabled:opacity-60 text-gray-900 font-medium py-3 rounded-xl transition-colors text-sm"
                 >
                   {googleLoading ? spinnerSvg : (
                     <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0">
@@ -166,20 +170,20 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                 </button>
 
                 <div className="flex items-center gap-3">
-                  <div className="flex-1 h-px bg-white/10" />
-                  <span className="text-xs text-gray-600">or</span>
-                  <div className="flex-1 h-px bg-white/10" />
+                  <div className="flex-1 h-px bg-gray-100" />
+                  <span className="text-xs text-gray-400">or</span>
+                  <div className="flex-1 h-px bg-gray-100" />
                 </div>
 
                 {/* Mode toggle — navigates between /login and /signup */}
-                <div className="flex rounded-xl bg-white/5 border border-white/10 p-1">
+                <div className="flex rounded-xl bg-white border border-gray-200 p-1">
                   {(["signin", "signup"] as const).map((m) => (
                     <button
                       key={m}
                       type="button"
                       onClick={() => switchMode(m)}
                       className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                        mode === m ? "bg-brand-500 text-white" : "text-gray-400 hover:text-white"
+                        mode === m ? "bg-brand-600 text-white" : "text-gray-600 hover:text-gray-900"
                       }`}
                     >
                       {m === "signin" ? "Sign in" : "Sign up"}
@@ -190,7 +194,7 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                 {/* Email form */}
                 <form onSubmit={handleEmailAuth} className="space-y-4">
                   <div className="flex flex-col gap-1.5">
-                    <label htmlFor="email" className="text-sm font-medium text-gray-300">
+                    <label htmlFor="email" className="text-sm font-medium text-gray-700">
                       Email
                     </label>
                     <input
@@ -200,12 +204,12 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
                     />
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label htmlFor="password" className="text-sm font-medium text-gray-300">
+                    <label htmlFor="password" className="text-sm font-medium text-gray-700">
                       Password
                     </label>
                     <input
@@ -216,13 +220,13 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Min. 6 characters"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
                     />
                   </div>
 
                   {mode === "signup" && (
                     <div className="flex flex-col gap-1.5">
-                      <label htmlFor="confirmPassword" className="text-sm font-medium text-gray-300">
+                      <label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
                         Confirm password
                       </label>
                       <input
@@ -236,20 +240,20 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                           if (confirmPasswordError) setConfirmPasswordError(null);
                         }}
                         placeholder="Re-enter your password"
-                        className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 transition text-sm ${
+                        className={`w-full bg-white border rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition text-sm ${
                           confirmPasswordError
-                            ? "border-red-500/60 focus:ring-red-500/30 focus:border-red-500/60"
-                            : "border-white/10 focus:ring-brand-500/50 focus:border-brand-500/50"
+                            ? "border-red-400 focus:ring-red-500/30 focus:border-red-400"
+                            : "border-gray-200 focus:ring-brand-500/50 focus:border-brand-500/50"
                         }`}
                       />
                       {confirmPasswordError && (
-                        <p className="text-red-400 text-xs mt-0.5">{confirmPasswordError}</p>
+                        <p className="text-red-600 text-xs mt-0.5">{confirmPasswordError}</p>
                       )}
                     </div>
                   )}
 
                   {error && (
-                    <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                    <p className="text-red-600 text-sm bg-red-50 border border-red-300 rounded-lg px-3 py-2">
                       {error}
                     </p>
                   )}
@@ -257,7 +261,7 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                   <button
                     type="submit"
                     disabled={loading || googleLoading}
-                    className="w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2 text-sm"
+                    className="w-full bg-brand-600 hover:bg-brand-700 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2 text-sm"
                   >
                     {loading ? spinnerSvg : null}
                     {mode === "signin" ? "Sign in" : "Create account"}
@@ -265,7 +269,7 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
                 </form>
               </div>
 
-              <p className="mt-6 text-center text-xs text-gray-600">
+              <p className="mt-6 text-center text-xs text-gray-400">
                 Free 7-day trial included with every account.
               </p>
             </>

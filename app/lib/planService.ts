@@ -46,20 +46,17 @@ export async function loadUserPlanData(
   };
 }
 
-// Single entry point for plan generation: applies the user's disliked/liked
-// exclusions and any swaps stored against this salt. Liked meals are excluded
-// only from FRESH generations (a salt other than the saved plan's) — never
-// from the regeneration of a persisted plan they may already be part of.
+// Single entry point for plan generation: applies the user's disliked
+// exclusions and any swaps stored against this salt. Liked meals are NEVER
+// excluded — liking a meal must not make it disappear from future plans
+// (excluding likes from fresh generations used to silently remove a user's
+// favorite budget staples and crater tight-budget plans).
 export function generatePlanForRequest(
   params: PlanRequestParams,
   userData: UserPlanData | null
 ): MealPlan {
   const planSalt = typeof params.planSalt === "number" ? params.planSalt : 0;
-  const isSavedPlan = userData?.savedSalt != null && userData.savedSalt === planSalt;
-  const excludedIds = [
-    ...(userData?.dislikedIds ?? []),
-    ...(isSavedPlan ? [] : userData?.likedIds ?? []),
-  ];
+  const excludedIds = [...(userData?.dislikedIds ?? [])];
   const swaps =
     userData?.savedSwaps && userData.savedSwaps.salt === planSalt
       ? userData.savedSwaps.swaps

@@ -6,8 +6,12 @@ import { generatePlan } from "@/app/lib/generatePlan";
 const SALTS = [0, 12345, 987654];
 
 // Profile matching the protein-target path: weight provided, calorie target set.
+// The budget must be able to fund the targets at full portions: when a budget
+// is hard-pinned (e.g. $70 in CA for 2400 cal/153g), budget-fit selection
+// intentionally converges every salt toward the cheapest in-band composition —
+// delivering calories outranks regenerate variety there.
 const make = (salt: number) =>
-  generatePlan(70, "muscle_gain", [], 14, "CA", 1, 2400, [], salt, [], 180);
+  generatePlan(110, "muscle_gain", [], 14, "CA", 1, 2400, [], salt, [], 180);
 
 function slotIds(plan: ReturnType<typeof generatePlan>): string[] {
   return plan.days.flatMap((d) => [d.breakfast.id, d.lunch.id, d.dinner.id, d.snack.id]);

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/app/lib/supabase/client";
 import { getTierById } from "@/app/data/plans";
+import { LogoMark } from "./Decor";
 
 const NAV_LINKS = [
   { href: "/plan", label: "Plan" },
@@ -100,10 +101,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <nav className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 border-b border-white/5 sticky top-0 bg-gray-950/90 backdrop-blur-md z-20">
+      <nav className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 border-b border-brand-900/10 sticky top-0 bg-white/85 backdrop-blur-md z-20">
         {/* Logo */}
-        <Link href="/plan" className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-brand-500 text-xl">⚡</span>
+        <Link href="/plan" className="flex items-center gap-2.5 flex-shrink-0">
+          <LogoMark />
           <span className="font-bold text-lg tracking-tight hidden sm:block">
             Campus Macros
           </span>
@@ -117,10 +118,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`text-sm font-medium px-3 sm:px-4 py-1.5 rounded-lg transition-colors ${
+                className={`text-sm font-medium px-3 sm:px-4 py-1.5 rounded-full transition-all ${
                   isActive
-                    ? "bg-brand-500/15 text-brand-400"
-                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                    ? "bg-gradient-to-r from-brand-500/25 to-emerald-500/20 text-brand-700 border border-brand-300 shadow-sm shadow-brand-500/10"
+                    : "text-gray-600 hover:text-brand-800 hover:bg-brand-50 border border-transparent"
                 }`}
               >
                 {link.label}
@@ -132,7 +133,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Subscription status + account menu */}
         <div className="flex items-center gap-3 flex-shrink-0">
           {tierInfo && daysLeft != null && (
-            <span className="hidden md:block text-xs text-gray-400 bg-white/5 border border-white/10 rounded-full px-3 py-1">
+            <span className="hidden md:block text-xs text-gray-600 bg-white border border-gray-200 rounded-full px-3 py-1">
               {tierInfo.label} · {daysLeft} day{daysLeft === 1 ? "" : "s"} left
             </span>
           )}
@@ -140,17 +141,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setMenuOpen((o) => !o)}
               aria-label="Account menu"
-              className="w-8 h-8 rounded-full bg-white/8 hover:bg-white/15 border border-white/10 flex items-center justify-center transition-colors"
+              className="w-8 h-8 rounded-full bg-gray-50 hover:bg-brand-100 border border-gray-200 flex items-center justify-center transition-colors"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-gray-300">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-gray-700">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-5.5-2.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM10 12a5.99 5.99 0 00-4.793 2.39A6.483 6.483 0 0010 16.5a6.483 6.483 0 004.793-2.11A5.99 5.99 0 0010 12z" clipRule="evenodd" />
               </svg>
             </button>
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-gray-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-30">
-                <div className="px-4 py-3 border-b border-white/8">
+              <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-2xl shadow-brand-900/15 overflow-hidden z-30">
+                <div className="px-4 py-3 border-b border-gray-200">
                   <p className="text-xs text-gray-500">Signed in as</p>
-                  <p className="text-sm text-white truncate">{email ?? "…"}</p>
+                  <p className="text-sm text-gray-900 truncate">{email ?? "…"}</p>
                   {tierInfo && daysLeft != null && (
                     <p className="md:hidden text-xs text-gray-500 mt-1">
                       {tierInfo.label} · {daysLeft} day{daysLeft === 1 ? "" : "s"} left
@@ -159,7 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <button
                   onClick={handleSignOut}
-                  className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-brand-50 hover:text-gray-900 transition-colors"
                 >
                   Sign out
                 </button>
@@ -171,8 +172,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 flex flex-col">{children}</div>
 
-      <footer className="px-6 py-4 text-center text-xs text-gray-600 border-t border-white/5">
-        © {new Date().getFullYear()} Campus Macros · Built for college students
+      <footer className="px-6 py-5 border-t border-brand-900/10">
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
+          <LogoMark className="w-5 h-5" />
+          © {new Date().getFullYear()} Campus Macros · Built for college students
+        </div>
       </footer>
     </div>
   );

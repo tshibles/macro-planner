@@ -2,8 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Crisp white canvas washed with soft forest-green light — the whole app
+   reads "fresh, healthy, alive" instead of flat gray. */
+body {
+  background-color: #fcfdfc;
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(21, 128, 61, 0.08), transparent 60%),
+    radial-gradient(900px 480px at -10% 14%, rgba(16, 185, 129, 0.07), transparent 55%),
+    radial-gradient(760px 520px at 50% 115%, rgba(132, 204, 22, 0.06), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(34, 197, 94, 0.30);
+  color: #052e16;
+}
+
+/* Thin forest scrollbar (WebKit only; harmless elsewhere). */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(21, 128, 61, 0.30);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(21, 128, 61, 0.5);
+}
+
+@layer components {
+  /* Standard white card with a whisper of green in the border. */
+  .glass-card {
+    @apply bg-white border border-brand-900/10 rounded-2xl shadow-sm shadow-brand-900/5;
+  }
+
+  /* Primary action — deep forest gradient with a leafy glow. */
+  .btn-primary {
+    @apply bg-gradient-to-r from-brand-700 to-emerald-600 hover:from-brand-800 hover:to-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-brand-700/25 hover:shadow-brand-700/40 hover:-translate-y-px;
+  }
+
+  /* Gradient headline text — forest to lime. */
+  .text-fresh {
+    @apply bg-gradient-to-r from-brand-800 via-emerald-600 to-lime-600 bg-clip-text text-transparent;
+  }
+
+  /* Full-bleed deep-forest panel (stats band, CTA). */
+  .forest-panel {
+    @apply bg-gradient-to-br from-brand-900 via-brand-800 to-emerald-900 text-white;
+  }
 }

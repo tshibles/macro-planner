@@ -88,7 +88,9 @@ export default function SettingsPage() {
     setSaving(true);
     setError(null);
 
-    const tierId = sub?.tier ? getTierById(sub.tier).id : "free";
+    // An unlocked subscription missing its tier label must never demote the
+    // regenerated plan to the 7-day free length — assume monthly.
+    const tierId = sub?.unlocked ? getTierById(sub.tier ?? "monthly").id : "free";
     const newSalt = Math.floor(Math.random() * 0x7fffffff);
 
     const res = await fetch("/api/meal-plans/preferences", {
@@ -154,16 +156,16 @@ export default function SettingsPage() {
     : null;
 
   const inputClass =
-    "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition";
+    "w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition";
   const smallInputClass =
-    "w-full bg-white/5 border border-white/10 rounded-xl pl-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm";
+    "w-full bg-white border border-gray-200 rounded-xl pl-4 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm";
   const selectClass =
-    "w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm";
+    "w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition appearance-none cursor-pointer text-sm";
 
   if (!loaded) {
     return (
       <div className="flex-1 min-h-[60vh] flex items-center justify-center">
-        <div className="text-gray-400 text-sm">Loading your settings…</div>
+        <div className="text-gray-600 text-sm">Loading your settings…</div>
       </div>
     );
   }
@@ -172,8 +174,8 @@ export default function SettingsPage() {
     <main className="flex-1 flex flex-col">
       <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-10">
         <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2">
-            <span className="bg-gradient-to-r from-brand-400 to-emerald-300 bg-clip-text text-transparent">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-2">
+            <span className="bg-gradient-to-r from-brand-700 to-emerald-600 bg-clip-text text-transparent">
               Settings
             </span>
           </h1>
@@ -184,7 +186,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Subscription status */}
-        <div className="mb-8 bg-white/[0.04] border border-white/8 rounded-2xl px-6 py-5">
+        <div className="mb-8 bg-white border border-gray-200 rounded-2xl px-6 py-5">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
               <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1">
@@ -192,9 +194,9 @@ export default function SettingsPage() {
               </p>
               {tierInfo && expiresAt ? (
                 <>
-                  <p className="text-lg font-bold text-white">
+                  <p className="text-lg font-bold text-gray-900">
                     {tierInfo.label}
-                    <span className="ml-2 text-xs font-medium text-brand-400 bg-brand-500/10 border border-brand-500/20 rounded-full px-2 py-0.5">
+                    <span className="ml-2 text-xs font-medium text-brand-700 bg-brand-50 border border-brand-300 rounded-full px-2 py-0.5">
                       Active
                     </span>
                   </p>
@@ -209,12 +211,12 @@ export default function SettingsPage() {
                   </p>
                 </>
               ) : (
-                <p className="text-lg font-bold text-gray-400">No active plan</p>
+                <p className="text-lg font-bold text-gray-600">No active plan</p>
               )}
             </div>
             <button
               onClick={() => router.push("/checkout?tier=monthly")}
-              className="text-xs text-gray-300 hover:text-white border border-white/10 hover:border-white/25 rounded-lg px-4 py-2 transition-colors"
+              className="text-xs text-gray-700 hover:text-gray-900 border border-gray-200 hover:border-brand-300 rounded-lg px-4 py-2 transition-colors"
             >
               Extend or change plan
             </button>
@@ -224,16 +226,16 @@ export default function SettingsPage() {
         {/* Preferences form */}
         <form
           onSubmit={handleSubmit}
-          className="flex flex-col gap-5 bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl backdrop-blur-sm"
+          className="flex flex-col gap-5 bg-white border border-gray-200 rounded-2xl p-8 shadow-xl backdrop-blur-sm"
         >
           {/* Budget + People */}
           <div className="flex gap-3">
             <div className="flex flex-col gap-1.5 flex-1">
-              <label htmlFor="budget" className="text-sm font-medium text-gray-300">
+              <label htmlFor="budget" className="text-sm font-medium text-gray-700">
                 Weekly grocery budget
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-600 font-medium">$</span>
                 <input
                   id="budget"
                   type="number"
@@ -248,7 +250,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <div className="flex flex-col gap-1.5 w-28">
-              <label htmlFor="people" className="text-sm font-medium text-gray-300">
+              <label htmlFor="people" className="text-sm font-medium text-gray-700">
                 # of people
               </label>
               <input
@@ -267,7 +269,7 @@ export default function SettingsPage() {
 
           {/* Goal Target */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-300">Your goal</label>
+            <label className="text-sm font-medium text-gray-700">Your goal</label>
             <div className="flex gap-3">
               <div className="flex flex-col gap-1 flex-1">
                 <label htmlFor="targetWeight" className="text-xs text-gray-500">
@@ -312,7 +314,7 @@ export default function SettingsPage() {
 
           {/* Dietary Restrictions */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-300">
+            <label className="text-sm font-medium text-gray-700">
               Dietary restrictions
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -323,8 +325,8 @@ export default function SettingsPage() {
                     key={opt.value}
                     className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 cursor-pointer transition-all ${
                       checked
-                        ? "border-brand-500/60 bg-brand-500/10"
-                        : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                        ? "border-brand-500/60 bg-brand-50"
+                        : "border-gray-200 bg-brand-50/40 hover:border-brand-300"
                     }`}
                   >
                     <div
@@ -333,7 +335,7 @@ export default function SettingsPage() {
                       }`}
                     >
                       {checked && (
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 text-gray-900">
                           <path d="M10.28 2.28a.75.75 0 0 0-1.06 0L4.5 7 2.78 5.28a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l5.25-5.25a.75.75 0 0 0 0-1.06Z" />
                         </svg>
                       )}
@@ -353,9 +355,9 @@ export default function SettingsPage() {
 
           {/* Allergies */}
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="allergies" className="text-sm font-medium text-gray-300">
+            <label htmlFor="allergies" className="text-sm font-medium text-gray-700">
               Allergies
-              <span className="ml-2 text-xs text-gray-600 font-normal">comma-separated</span>
+              <span className="ml-2 text-xs text-gray-400 font-normal">comma-separated</span>
             </label>
             <input
               id="allergies"
@@ -368,8 +370,8 @@ export default function SettingsPage() {
           </div>
 
           {/* Body Metrics */}
-          <div className="flex flex-col gap-3 border border-white/8 rounded-xl p-4 bg-white/[0.02]">
-            <p className="text-sm font-medium text-gray-300">Body metrics</p>
+          <div className="flex flex-col gap-3 border border-gray-200 rounded-xl p-4 bg-brand-50/40">
+            <p className="text-sm font-medium text-gray-700">Body metrics</p>
 
             <div className="flex gap-2">
               <div className="flex flex-col gap-1 flex-1">
@@ -400,7 +402,7 @@ export default function SettingsPage() {
                   value={age}
                   onChange={(e) => setAge(e.target.value)}
                   placeholder="20"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition text-sm"
                 />
               </div>
             </div>
@@ -447,7 +449,7 @@ export default function SettingsPage() {
                   className={selectClass}
                 >
                   {genderOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value} className="bg-gray-900">
+                    <option key={opt.value} value={opt.value} className="bg-white">
                       {opt.label}
                     </option>
                   ))}
@@ -462,7 +464,7 @@ export default function SettingsPage() {
                   className={selectClass}
                 >
                   {activityLevels.map((opt) => (
-                    <option key={opt.value} value={opt.value} className="bg-gray-900">
+                    <option key={opt.value} value={opt.value} className="bg-white">
                       {opt.label}
                     </option>
                   ))}
@@ -472,7 +474,7 @@ export default function SettingsPage() {
 
             <div className="flex flex-col gap-1">
               <label htmlFor="state" className="text-xs text-gray-500">
-                State <span className="text-gray-600">(for grocery price estimates)</span>
+                State <span className="text-gray-400">(for grocery price estimates)</span>
               </label>
               <select
                 id="state"
@@ -480,9 +482,9 @@ export default function SettingsPage() {
                 onChange={(e) => setState(e.target.value)}
                 className={selectClass}
               >
-                <option value="" className="bg-gray-900">Select state…</option>
+                <option value="" className="bg-white">Select state…</option>
                 {US_STATES.map((s) => (
-                  <option key={s.value} value={s.value} className="bg-gray-900">
+                  <option key={s.value} value={s.value} className="bg-white">
                     {s.label}
                   </option>
                 ))}
@@ -491,7 +493,7 @@ export default function SettingsPage() {
           </div>
 
           {error && (
-            <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+            <p className="text-red-600 text-sm bg-red-50 border border-red-300 rounded-lg px-3 py-2">
               {error}
             </p>
           )}
@@ -499,7 +501,7 @@ export default function SettingsPage() {
           <button
             type="submit"
             disabled={saving}
-            className="mt-2 w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors duration-150 shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
+            className="mt-2 w-full bg-brand-600 hover:bg-brand-700 active:bg-brand-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-colors duration-150 shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2"
           >
             {saving ? (
               <>
@@ -513,7 +515,7 @@ export default function SettingsPage() {
               "Update Preferences & Regenerate"
             )}
           </button>
-          <p className="text-xs text-gray-600 text-center -mt-2">
+          <p className="text-xs text-gray-400 text-center -mt-2">
             Regenerating builds a fresh plan with your updated preferences — no
             extra charge, stays on your current subscription.
           </p>
