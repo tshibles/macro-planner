@@ -423,7 +423,7 @@ function GroceryContent() {
                   <p className="text-xs text-gray-400 capitalize">{item.category}</p>
                 </div>
                 <div className="col-span-4 text-center">
-                  <span className="inline-flex items-center justify-center rounded-lg bg-gray-50 text-gray-200 text-xs font-semibold px-2.5 py-1">
+                  <span className="inline-flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold px-2.5 py-1">
                     {item.purchaseLabel}
                   </span>
                 </div>

@@ -34,7 +34,7 @@ const FEATURES = [
     tint: "bg-amber-50 border-amber-200",
     glow: "hover:border-amber-400 hover:shadow-amber-600/10",
     title: "Real recipes",
-    body: "A 130+ meal library with full ingredients, step-by-step instructions, and USDA-verified macros for every recipe.",
+    body: "A 150+ meal library with full ingredients, step-by-step instructions, and USDA-verified macros for every recipe.",
   },
 ];
 
@@ -60,7 +60,7 @@ const STEPS = [
 ];
 
 const STATS = [
-  { value: "130+", label: "real recipes" },
+  { value: "150+", label: "real recipes" },
   { value: "50", label: "states priced" },
   { value: "2", label: "prep sessions / week" },
   { value: "$8", label: "per month" },
@@ -185,7 +185,7 @@ export default function LandingPage() {
 
             {/* Trust signals */}
             <div className="mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-2 text-gray-500 text-sm">
-              {["USDA-verified macros", "130+ real recipes", "Budget-first"].map((t) => (
+              {["USDA-verified macros", "150+ real recipes", "Budget-first"].map((t) => (
                 <span key={t} className="flex items-center gap-1.5">
                   <svg className="w-4 h-4 text-brand-600" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />

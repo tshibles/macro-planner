@@ -340,7 +340,7 @@ export default function SettingsPage() {
                         </svg>
                       )}
                     </div>
-                    <span className="text-sm text-gray-200">{opt.label}</span>
+                    <span className="text-sm text-gray-800">{opt.label}</span>
                     <input
                       type="checkbox"
                       checked={checked}

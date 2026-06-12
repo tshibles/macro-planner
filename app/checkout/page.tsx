@@ -108,7 +108,7 @@ function CheckoutContent() {
                   <span className="text-xs text-gray-500">{t.description}</span>
                 </div>
               </div>
-              <span className="text-sm font-bold text-gray-200 flex-shrink-0">
+              <span className="text-sm font-bold text-gray-900 flex-shrink-0">
                 ${t.price}/{t.id === "annual" ? "yr" : "mo"}
               </span>
               <input
