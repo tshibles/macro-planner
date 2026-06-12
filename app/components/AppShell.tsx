@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/app/lib/supabase/client";
 import { getTierById } from "@/app/data/plans";
 import { LogoMark } from "./Decor";
+import { SupportChat } from "./SupportChat";
 
 const NAV_LINKS = [
   { href: "/plan", label: "Plan" },
@@ -171,6 +172,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <div className="flex-1 flex flex-col">{children}</div>
+
+      {/* AI support chat — logged-in app pages only */}
+      <SupportChat />
 
       <footer className="px-6 py-5 border-t border-brand-900/10">
         <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
