@@ -5,6 +5,7 @@ export interface SavedPlan {
   diet: string | null;
   diets: string[] | null;
   tier: string | null;
+  number_of_people?: number | null;
   age: number | null;
   activity_level: number | null;
   allergies: string | null;
@@ -33,6 +34,7 @@ export function buildSavedPlanParams(
     goal: plan.goal ?? "",
     tier: tierOverride ?? plan.tier ?? "free",
   });
+  if (plan.number_of_people) p.set("people", String(plan.number_of_people));
   if (savedDiets.length > 0) p.set("diets", savedDiets.join(","));
   if (plan.age) p.set("age", String(plan.age));
   if (plan.activity_level) p.set("activityLevel", String(plan.activity_level));

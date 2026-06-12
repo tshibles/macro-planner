@@ -868,6 +868,9 @@ function PlanContent() {
           goal: plan.goal ?? "",
           tier: plan.tier ?? "free",
         });
+        // Keep in sync with buildSavedPlanParams — param order matters for the
+        // string-equality mismatch check below.
+        if (plan.number_of_people) saved.set("people", String(plan.number_of_people));
         if (savedDiets.length > 0) saved.set("diets", savedDiets.join(","));
         if (plan.age) saved.set("age", String(plan.age));
         if (plan.activity_level) saved.set("activityLevel", String(plan.activity_level));
@@ -884,6 +887,7 @@ function PlanContent() {
           budget: String(budget),
           goal, tier: tierParam,
         });
+        if (params.get("people")) current.set("people", params.get("people")!);
         if (dietsParam) current.set("diets", dietsParam);
         if (ageParam) current.set("age", ageParam);
         if (activityLevelParam) current.set("activityLevel", activityLevelParam);
@@ -1091,7 +1095,9 @@ function PlanContent() {
 
   function handleRate(mealId: string, kind: Rating) {
     // Optimistic toggle; both endpoints toggle server-side and keep
-    // liked/disliked mutually exclusive.
+    // liked/disliked mutually exclusive. On failure the optimistic state is
+    // rolled back so the UI never disagrees with the database.
+    const before = ratings;
     setRatings((prev) => {
       const next = { ...prev };
       if (prev[mealId] === kind) delete next[mealId];
@@ -1102,7 +1108,11 @@ function PlanContent() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mealId }),
-    }).catch(() => {});
+    })
+      .then((r) => {
+        if (!r.ok) setRatings(before);
+      })
+      .catch(() => setRatings(before));
   }
 
   function handleSwapSelect(newMealId: string) {

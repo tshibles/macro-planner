@@ -37,6 +37,7 @@ export async function POST(req: Request) {
   const {
     budget = 50,
     goal = "",
+    numberOfPeople = null,
     diets = [],
     age = null,
     activityLevel = null,
@@ -110,6 +111,21 @@ export async function POST(req: Request) {
     },
     { onConflict: "user_id" }
   );
+
+  // Newer column (20260612 migration) — best-effort so trial activation
+  // never fails on a database where it doesn't exist yet.
+  if (numberOfPeople != null) {
+    const n = parseInt(String(numberOfPeople));
+    if (Number.isFinite(n) && n >= 1) {
+      const { error: peopleError } = await supabase
+        .from("meal_plans")
+        .update({ number_of_people: n })
+        .eq("user_id", user.id);
+      if (peopleError && peopleError.code !== "42703") {
+        console.error("[free-trial/use] people update failed:", peopleError.code, peopleError.message);
+      }
+    }
+  }
 
   return NextResponse.json({ success: true });
 }

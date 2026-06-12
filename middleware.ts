@@ -49,16 +49,27 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!user && !PUBLIC_PATHS.has(pathname)) {
+    // Preserve the destination (path + params) so signing in returns the
+    // user to the page they originally asked for instead of dropping them
+    // on a bare /plan.
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
+    url.searchParams.set("next", pathname + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
 
   if (user && (pathname === "/login" || pathname === "/signup")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/plan";
+    const next = request.nextUrl.searchParams.get("next");
     url.search = "";
+    if (next && next.startsWith("/") && !next.startsWith("//")) {
+      const [nextPath, nextQuery] = next.split("?");
+      url.pathname = nextPath;
+      if (nextQuery) url.search = `?${nextQuery}`;
+    } else {
+      url.pathname = "/plan";
+    }
     return NextResponse.redirect(url);
   }
 

@@ -13,7 +13,14 @@ const FRESH_SIGNUP_WINDOW_MS = 15 * 60_000;
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
+  // Default to /plan, not "/": signed-in users on the landing page are no
+  // longer auto-redirected, and /plan's restore + the AppShell gate route
+  // brand-new users onward (onboarding/choose-plan) without a detour through
+  // the marketing page. Only same-site paths are honored.
+  const nextParam = searchParams.get("next");
+  const next = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
+    ? nextParam
+    : "/plan";
 
   if (code) {
     const cookieStore = cookies();

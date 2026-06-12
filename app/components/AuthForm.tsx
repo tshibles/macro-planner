@@ -46,7 +46,13 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
         setError(error.message);
         setLoading(false);
       } else {
-        const dest = await resolvePostAuthDestination();
+        // Return to the page the user originally asked for (middleware put it
+        // in ?next= when it bounced them to login); same-site paths only.
+        const next = searchParams.get("next");
+        const dest =
+          next && next.startsWith("/") && !next.startsWith("//")
+            ? next
+            : await resolvePostAuthDestination();
         router.push(dest);
         router.refresh();
       }

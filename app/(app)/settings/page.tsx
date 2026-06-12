@@ -50,6 +50,7 @@ export default function SettingsPage() {
       setSub(subData);
       if (plan) {
         setBudget(String(plan.budget ?? ""));
+        setNumberOfPeople(String(plan.number_of_people ?? 1));
         setTargetWeight(plan.target_weight != null ? String(plan.target_weight) : "");
         setGoalTimeframe(plan.goal_timeframe_weeks != null ? String(plan.goal_timeframe_weeks) : "");
         setSelectedDiets(plan.diets ?? (plan.diet ? [plan.diet] : []));
@@ -99,6 +100,7 @@ export default function SettingsPage() {
       body: JSON.stringify({
         salt: newSalt,
         budget: budget || "50",
+        numberOfPeople: numberOfPeople || "1",
         goal,
         diets: selectedDiets,
         tier: tierId,

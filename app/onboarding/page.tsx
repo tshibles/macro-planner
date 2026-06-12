@@ -170,6 +170,7 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           budget: budget || "50",
+          numberOfPeople: numberOfPeople || "1",
           goal,
           diets: selectedDiets,
           tier: tierId,
