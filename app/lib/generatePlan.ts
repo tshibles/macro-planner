@@ -567,6 +567,47 @@ function expandCartForMealVariety(
     }
   }
 
+  // In-band batch-lunch coverage: the prep model serves a batch lunch 6 of 7
+  // days, so rotation needs SEVERAL batch lunches near the target ratio
+  // cart-eligible — not just protein-dense ones (those compose out-of-band
+  // days that shapeDev rejects, leaving ~2 usable recipes and the same lunch
+  // every prep session). Cheapest missing-ingredient set first, and it runs
+  // BEFORE the main variety pass so premium or dense unlocks can't starve it.
+  if (targetProteinRatio !== null) {
+    const IN_BAND_BATCH_LUNCH_MIN = 5;
+    // "In band" for a lunch: not meaningfully denser than the day's target
+    // ratio — lighter is fine (dense dinners pair it back up).
+    const inBandLunches = meals.filter(
+      (m) => baseFilter(m, "lunch") && m.prepType === "batch" && proteinCalRatio(m) <= targetProteinRatio * 1.25
+    );
+    const eligibleCount = () => inBandLunches.filter((m) => mealEligibleFromCart(m, cartEntries)).length;
+    while (eligibleCount() < IN_BAND_BATCH_LUNCH_MIN) {
+      let cheapest: { meal: Meal; missing: Array<{ key: string; def: PurchasableUnitDef }>; cost: number } | null = null;
+      for (const meal of inBandLunches) {
+        if (mealEligibleFromCart(meal, cartEntries)) continue;
+        const missing = collectMissingProducts(meal, cartEntries);
+        const cost = +missing
+          .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0)
+          .toFixed(2);
+        if (cost > perMealCap || cost > budgetRef.remaining) continue;
+        if (!cheapest || cost < cheapest.cost) cheapest = { meal, missing, cost };
+      }
+      if (!cheapest) break;
+      for (const { key, def } of cheapest.missing) {
+        cartEntries.push(makeCartEntry(key, def, 1, stateMultiplier));
+      }
+      budgetRef.remaining = +(budgetRef.remaining - cheapest.cost).toFixed(2);
+      console.log(
+        `[generatePlan] in-band batch-lunch coverage: "${cheapest.meal.id}" unlocked for $${cheapest.cost} — $${budgetRef.remaining} left`
+      );
+    }
+    if (eligibleCount() < IN_BAND_BATCH_LUNCH_MIN) {
+      console.warn(
+        `[generatePlan] lunch: only ${eligibleCount()} in-band batch lunches cart-eligible (wanted ${IN_BAND_BATCH_LUNCH_MIN}) — prep sessions may repeat`
+      );
+    }
+  }
+
   const slots = MEAL_SLOTS.map((type) => ({
     type,
     count: meals.filter((m) => baseFilter(m, type) && mealEligibleFromCart(m, cartEntries)).length,
@@ -775,7 +816,7 @@ function buildFinalPool(
   allergies: string[],
   dislikedIds: Set<string>,
   rng: () => number,
-  usedAcrossWeeks: Set<string> = new Set()
+  usedAcrossWeeks: Map<string, number> = new Map()
 ): PoolResult {
   const baseFilter = (m: Meal) =>
     m.type === type && isAllowed(m, diets) && !hasAllergen(m, allergies) && !dislikedIds.has(m.id);
@@ -1134,7 +1175,7 @@ function poolMeans(pool: Meal[]): { cal: number; prot: number } {
 function composeWeekPrep(
   pools: Record<MealKey, Meal[]>,
   weekLength: number,
-  usedAcrossWeeks: Set<string>,
+  usedAcrossWeeks: Map<string, number>,
   targetRatio: number | null,
   dailyCalTarget: number | null,
   goal: string,
@@ -1235,7 +1276,7 @@ function composeWeekPrep(
     return (
       (costWeight > 0 ? shapeDev(dev) + costPenalty(m) + costWeight * 0.06 * newProductCount(m) : dev) +
       reuse * INTRA_WEEK_REUSE_PENALTY +
-      (reuse === 0 && usedAcrossWeeks.has(m.id) ? crossWeekPenalty : 0) +
+      (reuse === 0 ? (usedAcrossWeeks.get(m.id) ?? 0) * crossWeekPenalty : 0) +
       (calFloor > 0 ? (Math.max(0, calFloor - projCals) / calFloor) * CAL_FLOOR_WEIGHT : 0) +
       rng() * jitterAmp * jitterScale
     );
@@ -1250,7 +1291,7 @@ function composeWeekPrep(
   const batchPenalty = (m: Meal, slot: MealKey): number => {
     const reuse = usedThisWeek[slot].get(m.id) ?? 0;
     return reuse * INTRA_WEEK_REUSE_PENALTY +
-      (reuse === 0 && usedAcrossWeeks.has(m.id) ? BATCH_CROSS_WEEK_PENALTY : 0);
+      (reuse === 0 ? (usedAcrossWeeks.get(m.id) ?? 0) * BATCH_CROSS_WEEK_PENALTY : 0);
   };
   // Best achievable day deviation for a fixed (dinner, lunch[, snack]) set:
   // search the real breakfast pool for the corrective pick that completes the
@@ -1406,7 +1447,7 @@ interface WeekSelection {
 function pickWeekWithinBudget(
   pools: Record<MealKey, Meal[]>,
   weekLength: number,
-  usedAcrossWeeks: Set<string>,
+  usedAcrossWeeks: Map<string, number>,
   targetRatio: number | null,
   calorieTarget: number | null,
   dailyProteinTarget: number | null,
@@ -1699,7 +1740,7 @@ export function generatePlan(
   // budget fit) and the best-delivering attempt wins — Step 8 happens inside.
   const sel1 = pickWeekWithinBudget(
     { breakfast: bPool, lunch: lPool, dinner: dPool, snack: sPool },
-    week1Length, new Set(), targetProteinRatio, calorieTarget ?? null, dailyProteinTarget,
+    week1Length, new Map(), targetProteinRatio, calorieTarget ?? null, dailyProteinTarget,
     goal, rng, "week 1", perPersonBudget, stateMultiplier, 0,
     (picks) => assembleWeek(picks, 0, week1Length));
 
@@ -1724,10 +1765,17 @@ export function generatePlan(
   const weekScales: number[] = [fin1.scale];
   const weekFullCosts: number[] = [fin1.fullCost];
   const weekCostPressures: number[] = [sel1.costPressure];
-  const usedAcrossWeeks = new Set<string>();
-  for (const day of week1Days) {
-    for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
-  }
+  // Counts the number of PRIOR WEEKS each meal was served in (distinct per
+  // week) — the cross-week penalties scale with this count, so a meal served
+  // three weeks running accumulates triple the penalty and rotation becomes
+  // inevitable once an in-band alternative exists.
+  const usedAcrossWeeks = new Map<string, number>();
+  const recordWeekUse = (weekDays: DayMeals[]) => {
+    const ids = new Set<string>();
+    for (const day of weekDays) for (const slot of MEAL_SLOTS) ids.add(day[slot].id);
+    for (const id of Array.from(ids)) usedAcrossWeeks.set(id, (usedAcrossWeeks.get(id) ?? 0) + 1);
+  };
+  recordWeekUse(week1Days);
 
   for (let w = 1; w < numWeeks; w++) {
     const weekSeed = (Math.round(budget * 100) + goalIndex * 1000 + dietHash + stateIdx + planSalt + w) >>> 0;
@@ -1745,9 +1793,7 @@ export function generatePlan(
       (picks) => assembleWeek(picks, w, weekLength));
 
     const fin = sel.fin;
-    for (const day of fin.days) {
-      for (const slot of MEAL_SLOTS) usedAcrossWeeks.add(day[slot].id);
-    }
+    recordWeekUse(fin.days);
     days.push(...fin.days);
     weeklyCarts.push(fin.cart);
     prepSessions.push(fin.sessions);
