@@ -567,44 +567,47 @@ function expandCartForMealVariety(
     }
   }
 
-  // In-band batch-lunch coverage: the prep model serves a batch lunch 6 of 7
-  // days, so rotation needs SEVERAL batch lunches near the target ratio
-  // cart-eligible — not just protein-dense ones (those compose out-of-band
-  // days that shapeDev rejects, leaving ~2 usable recipes and the same lunch
-  // every prep session). Cheapest missing-ingredient set first, and it runs
-  // BEFORE the main variety pass so premium or dense unlocks can't starve it.
+  // In-band batch coverage for the two prep-session slots: the prep model
+  // serves a batch lunch AND a batch dinner 6 of 7 days, so rotation needs
+  // SEVERAL batch recipes near the target ratio cart-eligible in BOTH slots —
+  // not just protein-dense ones (those compose out-of-band days that shapeDev
+  // rejects, leaving ~2 usable recipes and the same meal every prep session).
+  // Cheapest missing-ingredient set first, and it runs BEFORE the main
+  // variety pass so premium or dense unlocks can't starve it.
   if (targetProteinRatio !== null) {
-    const IN_BAND_BATCH_LUNCH_MIN = 5;
-    // "In band" for a lunch: not meaningfully denser than the day's target
-    // ratio — lighter is fine (dense dinners pair it back up).
-    const inBandLunches = meals.filter(
-      (m) => baseFilter(m, "lunch") && m.prepType === "batch" && proteinCalRatio(m) <= targetProteinRatio * 1.25
-    );
-    const eligibleCount = () => inBandLunches.filter((m) => mealEligibleFromCart(m, cartEntries)).length;
-    while (eligibleCount() < IN_BAND_BATCH_LUNCH_MIN) {
-      let cheapest: { meal: Meal; missing: Array<{ key: string; def: PurchasableUnitDef }>; cost: number } | null = null;
-      for (const meal of inBandLunches) {
-        if (mealEligibleFromCart(meal, cartEntries)) continue;
-        const missing = collectMissingProducts(meal, cartEntries);
-        const cost = +missing
-          .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0)
-          .toFixed(2);
-        if (cost > perMealCap || cost > budgetRef.remaining) continue;
-        if (!cheapest || cost < cheapest.cost) cheapest = { meal, missing, cost };
-      }
-      if (!cheapest) break;
-      for (const { key, def } of cheapest.missing) {
-        cartEntries.push(makeCartEntry(key, def, 1, stateMultiplier));
-      }
-      budgetRef.remaining = +(budgetRef.remaining - cheapest.cost).toFixed(2);
-      console.log(
-        `[generatePlan] in-band batch-lunch coverage: "${cheapest.meal.id}" unlocked for $${cheapest.cost} — $${budgetRef.remaining} left`
+    const IN_BAND_BATCH_MIN = 5;
+    for (const slotType of ["lunch", "dinner"] as Meal["type"][]) {
+      // "In band" for a prep slot: not meaningfully denser than the day's
+      // target ratio — lighter is fine (denser partners pair it back up).
+      const inBand = meals.filter(
+        (m) => baseFilter(m, slotType) && m.prepType === "batch" && proteinCalRatio(m) <= targetProteinRatio * 1.25
       );
-    }
-    if (eligibleCount() < IN_BAND_BATCH_LUNCH_MIN) {
-      console.warn(
-        `[generatePlan] lunch: only ${eligibleCount()} in-band batch lunches cart-eligible (wanted ${IN_BAND_BATCH_LUNCH_MIN}) — prep sessions may repeat`
-      );
+      const eligibleCount = () => inBand.filter((m) => mealEligibleFromCart(m, cartEntries)).length;
+      while (eligibleCount() < IN_BAND_BATCH_MIN) {
+        let cheapest: { meal: Meal; missing: Array<{ key: string; def: PurchasableUnitDef }>; cost: number } | null = null;
+        for (const meal of inBand) {
+          if (mealEligibleFromCart(meal, cartEntries)) continue;
+          const missing = collectMissingProducts(meal, cartEntries);
+          const cost = +missing
+            .reduce((s, { def }) => s + +(def.price * stateMultiplier).toFixed(2), 0)
+            .toFixed(2);
+          if (cost > perMealCap || cost > budgetRef.remaining) continue;
+          if (!cheapest || cost < cheapest.cost) cheapest = { meal, missing, cost };
+        }
+        if (!cheapest) break;
+        for (const { key, def } of cheapest.missing) {
+          cartEntries.push(makeCartEntry(key, def, 1, stateMultiplier));
+        }
+        budgetRef.remaining = +(budgetRef.remaining - cheapest.cost).toFixed(2);
+        console.log(
+          `[generatePlan] in-band batch-${slotType} coverage: "${cheapest.meal.id}" unlocked for $${cheapest.cost} — $${budgetRef.remaining} left`
+        );
+      }
+      if (eligibleCount() < IN_BAND_BATCH_MIN) {
+        console.warn(
+          `[generatePlan] ${slotType}: only ${eligibleCount()} in-band batch recipes cart-eligible (wanted ${IN_BAND_BATCH_MIN}) — prep sessions may repeat`
+        );
+      }
     }
   }
 
