@@ -8,7 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 // in the shape of its single tool, which can only describe the issue.
 
 const SUPPORT_MODEL = "claude-sonnet-4-6";
-const SUPPORT_INBOX = "tiernanshibles05@gmail.com";
+const SUPPORT_INBOX = "campusmacros@gmail.com";
 const SUPPORT_FROM = "Campus Macros Support <support@campusmacros.com>";
 
 export const SUPPORT_CATEGORIES = [

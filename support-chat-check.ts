@@ -7,7 +7,7 @@
 import { runSupportTurn, SupportChatMessage, SupportUserInfo } from "@/app/lib/supportChat";
 
 const user: SupportUserInfo = {
-  email: "tiernanshibles05@gmail.com",
+  email: "campusmacros@gmail.com",
   userId: "support-check-0001",
   subscriptionTier: "monthly",
   subscriptionExpiresAt: "2026-07-10",

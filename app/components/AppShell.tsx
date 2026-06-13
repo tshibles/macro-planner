@@ -180,6 +180,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
           <LogoMark className="w-5 h-5" />
           © {new Date().getFullYear()} Campus Macros · Built for college students
+          <span className="text-gray-300">·</span>
+          <Link href="/privacy" className="hover:text-brand-700 underline-offset-2 hover:underline">Privacy</Link>
+          <Link href="/terms" className="hover:text-brand-700 underline-offset-2 hover:underline">Terms</Link>
         </div>
       </footer>
     </div>

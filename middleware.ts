@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Routes reachable without a session. Everything else requires auth.
-const PUBLIC_PATHS = new Set(["/", "/login", "/signup"]);
+const PUBLIC_PATHS = new Set(["/", "/login", "/signup", "/privacy", "/terms"]);
 
 export async function middleware(request: NextRequest) {
   // API routes handle their own auth — skip middleware entirely so POST

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -278,6 +279,14 @@ function AuthFormContent({ mode }: { mode: "signin" | "signup" }) {
               <p className="mt-6 text-center text-xs text-gray-400">
                 Free 7-day trial included with every account.
               </p>
+              {mode === "signup" && (
+                <p className="mt-2 text-center text-xs text-gray-500">
+                  By signing up you agree to our{" "}
+                  <Link href="/terms" className="text-brand-700 hover:underline">Terms of Service</Link>{" "}
+                  and{" "}
+                  <Link href="/privacy" className="text-brand-700 hover:underline">Privacy Policy</Link>.
+                </p>
+              )}
             </>
           )}
         </div>

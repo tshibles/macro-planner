@@ -90,7 +90,7 @@ A full SaaS web app called **Campus Macros** — a meal planning app for college
   1. Finish creating the Google Cloud project
   2. Go to APIs & Services → OAuth consent screen → External → Create
      - App name: Macro Planner
-     - Support email: tiernanshibles05@gmail.com
+     - Support email: campusmacros@gmail.com
      - Add yourself as test user → Save
   3. Go to APIs & Services → Credentials → + Create Credentials → OAuth client ID
      - Type: Web application

@@ -28,6 +28,11 @@ export function PageFooter() {
         </span>
         <span className="hidden sm:inline text-gray-300">·</span>
         <span>Eat well, hit your macros, stay on budget 🥗</span>
+        <span className="hidden sm:inline text-gray-300">·</span>
+        <span className="flex items-center gap-2">
+          <Link href="/privacy" className="hover:text-brand-700 underline-offset-2 hover:underline">Privacy</Link>
+          <Link href="/terms" className="hover:text-brand-700 underline-offset-2 hover:underline">Terms</Link>
+        </span>
       </div>
     </footer>
   );
