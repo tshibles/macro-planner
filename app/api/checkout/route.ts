@@ -7,6 +7,15 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-04-22.dahlia",
 });
 
+// Origins Stripe is allowed to redirect back to. Anything else (or a missing
+// Origin header) falls back to the canonical production URL.
+const ALLOWED_ORIGINS = new Set([
+  "https://www.campusmacros.com",
+  "https://campusmacros.com",
+  "http://localhost:3000",
+]);
+const CANONICAL_ORIGIN = "https://www.campusmacros.com";
+
 export async function POST(req: NextRequest) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -21,8 +30,16 @@ export async function POST(req: NextRequest) {
     weight = "", heightFt = "", heightIn = "", gender = "", state = "",
     targetWeight = "", goalTimeframe = "",
     successPath = "", cancelPath = "",
-    origin,
   } = await req.json();
+
+  // The redirect origin is derived SERVER-SIDE from the request's own Origin
+  // header, validated against an allowlist — never from the request body. A
+  // client-supplied origin would let a caller point Stripe's post-payment
+  // redirect at an arbitrary site (security audit M2).
+  const headerOrigin = req.headers.get("origin") ?? "";
+  const origin = ALLOWED_ORIGINS.has(headerOrigin)
+    ? headerOrigin
+    : CANONICAL_ORIGIN;
 
   const planTier = getTierById(tier);
   if (planTier.priceInCents === 0) {
@@ -47,14 +64,14 @@ export async function POST(req: NextRequest) {
   // Callers may supply explicit same-site return paths (e.g. the /checkout
   // page sends new users to /onboarding after paying); the legacy plan-page
   // URLs remain the default.
-  const successUrl =
-    typeof successPath === "string" && successPath.startsWith("/")
-      ? `${origin}${successPath}`
-      : `${origin}/plan?${baseParams.toString()}&paid=true`;
-  const cancelUrl =
-    typeof cancelPath === "string" && cancelPath.startsWith("/")
-      ? `${origin}${cancelPath}`
-      : `${origin}/plan?${baseParams.toString()}`;
+  const isSafePath = (p: unknown): p is string =>
+    typeof p === "string" && p.startsWith("/") && !p.startsWith("//");
+  const successUrl = isSafePath(successPath)
+    ? `${origin}${successPath}`
+    : `${origin}/plan?${baseParams.toString()}&paid=true`;
+  const cancelUrl = isSafePath(cancelPath)
+    ? `${origin}${cancelPath}`
+    : `${origin}/plan?${baseParams.toString()}`;
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
