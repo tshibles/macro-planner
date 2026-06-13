@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import type { DayMeals, MealPlan } from "@/app/lib/generatePlan";
 import { getTierById } from "@/app/data/plans";
@@ -33,6 +34,7 @@ function displayName(key: string): string {
 function GroceryContent() {
   const router = useRouter();
   const params = useSearchParams();
+  const posthog = usePostHog();
 
   const budget = parseFloat(params.get("budget") || "50");
   const numberOfPeople = parseInt(params.get("people") || "1");
@@ -153,10 +155,13 @@ function GroceryContent() {
         if (data.budgetCapMessage) setBudgetCapMessage(data.budgetCapMessage);
         setPlanLoading(false);
       })
-      .catch(() => {
+      .catch((e: Error) => {
         if (cancelled) return;
         setGenError(true);
         setPlanLoading(false);
+        posthog.capture("plan_generation_failed", {
+          page: "grocery", budget, tier: tierParam, error: e?.message ?? "unknown",
+        });
       });
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

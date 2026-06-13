@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { addLoopsContact } from "@/app/lib/loops";
+import { captureServerEvent } from "@/app/lib/posthogServer";
 
 // A signup is "fresh" when the account was created or email-confirmed within
 // this window. Email/password accounts are confirmed the moment this callback
@@ -71,6 +72,16 @@ export async function GET(request: Request) {
               : undefined,
           source: "signup",
         });
+        // Google OAuth signups never run the client-side signup capture in
+        // AuthForm (they redirect straight to Google), so capture them here.
+        // Email signups are already captured client-side at the signup form —
+        // gating on the provider avoids double-counting those.
+        if (user.app_metadata?.provider === "google") {
+          await captureServerEvent("signup", user.id, {
+            method: "google",
+            $set: { email: user.email },
+          });
+        }
       }
     }
 

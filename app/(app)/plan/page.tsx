@@ -989,7 +989,13 @@ function PlanContent() {
         return r.json();
       })
       .then((data) => { if (!cancelled) setPlan(data); })
-      .catch(() => { if (!cancelled) setGenError(true); });
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setGenError(true);
+        posthog.capture("plan_generation_failed", {
+          page: "plan", budget, tier: tierParam, error: e?.message ?? "unknown",
+        });
+      });
     return () => { cancelled = true; };
   }, [resolving, planSalt]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1061,6 +1067,7 @@ function PlanContent() {
 
   async function handleUpgrade(tierId: string) {
     setCheckoutLoading(true);
+    posthog.capture("checkout_started", { tier: tierId, budget, source: "paywall" });
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",

@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { usePostHog } from "posthog-js/react";
 import { useSearchParams } from "next/navigation";
 import { planTiers } from "@/app/data/plans";
 import { PageFooter, PageHeader } from "@/app/components/PageHeader";
@@ -10,6 +11,7 @@ const PAID_TIERS = planTiers.filter((t) => t.priceInCents > 0);
 
 function CheckoutContent() {
   const params = useSearchParams();
+  const posthog = usePostHog();
   const initialTier = params.get("tier");
   const canceled = params.get("canceled") === "true";
   const [tierId, setTierId] = useState(
@@ -20,9 +22,19 @@ function CheckoutContent() {
 
   const selected = PAID_TIERS.find((t) => t.id === tierId)!;
 
+  // Returning from Stripe's cancel link — capture once per landing.
+  const canceledCaptured = useRef(false);
+  useEffect(() => {
+    if (canceled && !canceledCaptured.current) {
+      canceledCaptured.current = true;
+      posthog.capture("checkout_canceled", { tier: tierId });
+    }
+  }, [canceled]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handlePay() {
     setLoading(true);
     setError(null);
+    posthog.capture("checkout_started", { tier: tierId, source: "checkout_page" });
     try {
       // After payment: users with a saved plan return to it; first-time buyers
       // go fill out the onboarding form.
