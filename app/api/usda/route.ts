@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse } from "@/app/lib/rateLimit";
+
+// Reads request headers (rate limiting) — always render dynamically.
+export const dynamic = "force-dynamic";
 
 const USDA_BASE = "https://api.nal.usda.gov/fdc/v1/foods/search";
 
@@ -19,6 +23,10 @@ const NUTRIENT = {
 } as const;
 
 export async function GET(req: NextRequest): Promise<NextResponse<UsdaMacros | { error: string }>> {
+  // Unauthenticated proxy that spends our USDA API quota — cap per IP.
+  const rl = await checkRateLimit("usda", 20, req);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterSec);
+
   const query = req.nextUrl.searchParams.get("query");
   if (!query) {
     return NextResponse.json({ error: "query param required" }, { status: 400 });

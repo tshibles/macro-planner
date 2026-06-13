@@ -6,11 +6,17 @@ import {
   MAX_MESSAGES,
   MAX_MESSAGE_CHARS,
 } from "@/app/lib/supportChat";
+import { checkRateLimit, rateLimitResponse } from "@/app/lib/rateLimit";
 
 // AI support chat for logged-in users. The assistant only gathers information
 // (a smart intake form): this route READS the user's subscription/plan rows to
 // give the model context, but no account data is ever written or modified.
 export async function POST(req: NextRequest) {
+  // Each turn calls the Anthropic API — cap per IP so a hostile client can't
+  // burn tokens. 10/min is far above any genuine chat pace.
+  const rl = await checkRateLimit("support-chat", 10, req);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterSec);
+
   const supabase = createClient();
   const {
     data: { user },
