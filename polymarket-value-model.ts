@@ -26,6 +26,8 @@ type Outcome = {
   american: number; // sportsbook consensus American odds
   pm: number; // Polymarket price / implied prob (0..1), null-ish if unknown
   est?: boolean; // sportsbook number is an estimate, not a firm consensus line
+  modelProb?: number; // independent projection-model prob (e.g. FanGraphs sim), no vig
+  modelSrc?: string; // where modelProb came from
 };
 
 type Market = {
@@ -65,13 +67,14 @@ const markets: Market[] = [
   },
   {
     title: "MLB World Series — Champion 2026",
-    note: "30-team futures; a 'Rest of field' bucket is added so the book closes realistically before de-vig.",
+    note: "30-team futures. When available, FanGraphs sim odds (posted on X by MLB accts) are used as the fair anchor instead of large-field de-vig — no vig, no favorite-longshot distortion.",
     resolves: "~2026-11",
     outcomes: [
-      { name: "Dodgers", american: 200, pm: 0.31 },
-      { name: "Yankees", american: 500, pm: 0.14 },
-      { name: "Mariners", american: 1000, pm: 0.06, est: true },
-      { name: "Braves", american: 1100, pm: 0.05, est: true },
+      // modelProb = FanGraphs 2026 WS sim snapshot via @MetsMuse on X (mid-2026).
+      { name: "Dodgers", american: 200, pm: 0.31, modelProb: 0.284, modelSrc: "FanGraphs" },
+      { name: "Yankees", american: 500, pm: 0.14, modelProb: 0.061, modelSrc: "FanGraphs" },
+      { name: "Braves", american: 1100, pm: 0.05, modelProb: 0.102, modelSrc: "FanGraphs", est: true },
+      { name: "Mariners", american: 1000, pm: 0.06, modelProb: 0.061, modelSrc: "FanGraphs", est: true },
       { name: "Phillies", american: 1100, pm: 0.055, est: true },
       { name: "Brewers", american: 1200, pm: 0.05, est: true },
       { name: "Rest of field", american: -107, pm: 0.335, est: true }, // ~24 teams lumped so total overround ~35% (typical 30-team futures)
@@ -96,7 +99,9 @@ type Row = {
   market: string;
   outcome: string;
   pm: number;
-  fair: number;
+  devig: number; // de-vigged sportsbook fair
+  fair: number; // anchor used for the pick (model prob if present, else de-vig)
+  anchor: string; // "FanGraphs" | "book"
   edge: number;
   halfKelly: number;
   est: boolean;
@@ -115,14 +120,17 @@ for (const m of markets) {
     `    book overround: ${((rawSum - 1) * 100).toFixed(1)}%  | resolves ${m.resolves}`
   );
   for (const o of m.outcomes) {
-    const fair = impliedFromAmerican(o.american) / rawSum; // de-vigged
+    const devig = impliedFromAmerican(o.american) / rawSum; // de-vigged book
+    const fair = o.modelProb ?? devig; // prefer an independent model when we have one
     const edge = fair - o.pm;
     const hk = 0.5 * kelly(fair, o.pm); // half-Kelly, only meaningful for +edge YES bets
     rows.push({
       market: m.title,
       outcome: o.name,
       pm: o.pm,
+      devig,
       fair,
+      anchor: o.modelProb != null ? o.modelSrc ?? "model" : "book",
       edge,
       halfKelly: edge > 0 ? Math.min(hk, 0.1) : 0, // cap 10% bankroll
       est: !!o.est,
@@ -140,6 +148,7 @@ console.log(
   "outcome".padEnd(22) +
     "PM%".padStart(7) +
     "fair%".padStart(8) +
+    "anchor".padStart(11) +
     "edge".padStart(8) +
     "  action".padEnd(10) +
     "½Kelly"
@@ -152,7 +161,7 @@ for (const r of ranked) {
       r.fair * 100
     )
       .toFixed(1)
-      .padStart(8)}${((r.edge > 0 ? "+" : "") + (r.edge * 100).toFixed(1) + "pp").padStart(
+      .padStart(8)}${r.anchor.padStart(11)}${((r.edge > 0 ? "+" : "") + (r.edge * 100).toFixed(1) + "pp").padStart(
       8
     )}  ${dir.padEnd(9)}${r.halfKelly > 0 ? (r.halfKelly * 100).toFixed(1) + "%" : "-"}`
   );
@@ -162,9 +171,18 @@ console.log(
   "\n* = sportsbook input is an estimate; treat that row's edge as low-confidence."
 );
 console.log(
-  "CAVEAT: proportional de-vig over a large field (e.g. 30-team MLB, ~35% overround)\n" +
-    "systematically understates heavy favorites (favorite-longshot bias). So the\n" +
-    "Dodgers/Yankees 'FADE' magnitudes are directionally plausible but overstated."
+  "anchor = what 'fair%' is based on: 'FanGraphs' = independent sim model (posted on\n" +
+    "X by MLB accounts); 'book' = de-vigged sportsbook consensus."
+);
+console.log(
+  "CAVEAT 1: proportional de-vig over a large field (30-team MLB, ~35% overround)\n" +
+    "understates heavy favorites (favorite-longshot bias) — which is exactly why the\n" +
+    "MLB rows now anchor on FanGraphs instead of the book where available."
+);
+console.log(
+  "CAVEAT 2: it's early July, before the trade deadline. Projection models price the\n" +
+    "CURRENT roster, so big-market buyers (Yankees/Dodgers) can look 'overpriced' vs a\n" +
+    "model that hasn't baked in the upgrades they'll make. Discount the Yankees fade."
 );
 console.log(
   "Edge is in probability points (pp). A +Xpp 'BUY YES' means PM is that many\n" +
